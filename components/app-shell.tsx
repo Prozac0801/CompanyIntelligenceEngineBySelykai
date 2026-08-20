@@ -31,9 +31,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-bottom">
           <div className="engine-state">
             <Activity size={17} />
-            <div><strong>Engine V0.3</strong><span>official · web · commercial</span></div>
+            <div><strong>Engine V0.4</strong><span>official · legal · web · commercial</span></div>
           </div>
-          <div className="side-footer"><Settings2 size={15} /> preuves sourcées · scoring composite</div>
+          <div className="side-footer"><Settings2 size={15} /> facts · triggers · risk · confidence</div>
         </div>
       </aside>
       <main className="main-panel">{children}</main>
