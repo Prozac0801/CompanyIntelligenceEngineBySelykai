@@ -1,4 +1,9 @@
-import type { CompanyEnrichment, ExplainableScore, SourceEvidence } from "@/types/company";
+import type {
+  CompanyEnrichment,
+  CompanyIntelligenceSummary,
+  ExplainableScore,
+  SourceEvidence,
+} from "@/types/company";
 
 export type FactValue = string | number | boolean | null | string[];
 
@@ -21,7 +26,13 @@ export interface CompanyFact {
 }
 
 export interface CompanyEvent {
-  type: "HEAD_OFFICE_MOVE" | "ACTIVITY_CHANGE" | "EMPLOYER_STATUS_CHANGE" | "ESTABLISHMENT_GROWTH" | "GOVERNANCE_CHANGE";
+  type:
+    | "HEAD_OFFICE_MOVE"
+    | "ACTIVITY_CHANGE"
+    | "EMPLOYER_STATUS_CHANGE"
+    | "ESTABLISHMENT_GROWTH"
+    | "GOVERNANCE_CHANGE"
+    | "BODACC_ACTIVITY";
   title: string;
   description: string;
   observedAt: string;
@@ -30,7 +41,7 @@ export interface CompanyEvent {
 }
 
 export interface CompanySignal {
-  type: "EXPANSION" | "CHANGE";
+  type: "EXPANSION" | "CHANGE" | "LEGAL_RISK";
   label: string;
   strength: number;
   reason: string;
@@ -51,5 +62,6 @@ export interface CompanyAnalysisResult<TCompany> {
   events: CompanyEvent[];
   signals: CompanySignal[];
   score: ExplainableScore;
+  summary: CompanyIntelligenceSummary;
   meta: CompanyAnalysisMeta;
 }
