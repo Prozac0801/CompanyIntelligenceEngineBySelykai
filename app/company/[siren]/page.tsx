@@ -15,14 +15,31 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { analyzeCompany } from "@/lib/intelligence/company-engine";
 import { loadCompanyTimeline } from "@/lib/persistence/company-repository";
+import { commercialReuseDecision } from "@/lib/providers";
 
 export default async function CompanyPage({ params }: { params: Promise<{ siren: string }> }) {
   const { siren } = await params;
   const analysis = await analyzeCompany(siren);
   if (!analysis) notFound();
 
-  const { company, score, signals, meta } = analysis;
+  const { company, score, signals, meta, facts } = analysis;
   const timeline = meta.databaseConfigured ? await loadCompanyTimeline(siren) : [];
+  const reuse = commercialReuseDecision(facts);
+  const sourceEvidence = Array.from(
+    new Map(
+      [...company.evidence, ...facts.map((fact) => fact.evidence)].map((item) => [
+        item.providerId || item.provider,
+        item,
+      ]),
+    ).values(),
+  );
+
+  const reuseTitle =
+    reuse.status === "blocked"
+      ? "Prospection bloquée"
+      : reuse.status === "allowed"
+        ? "Aucune opposition RNE détectée"
+        : "Statut de prospection non vérifié";
 
   return (
     <AppShell>
@@ -69,6 +86,15 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
                   <b>+{factor.impact}</b>
                 </div>
               )) : <span>Aucun signal suffisamment documenté.</span>}
+            </div>
+          </section>
+
+          <section className="detail-panel">
+            <div className="panel-title-row"><h2><ShieldCheck size={16} /> Cadre de prospection</h2><span>{reuse.status}</span></div>
+            <div className={`reuse-status ${reuse.status}`}>
+              <strong>{reuseTitle}</strong>
+              <p>{reuse.reason}</p>
+              {reuse.status === "allowed" && <small>La licence de réutilisation et le RGPD restent applicables ; ce statut n’est pas une autorisation générale de démarchage.</small>}
             </div>
           </section>
 
@@ -122,8 +148,8 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
 
         <footer className="evidence-footer">
           <span>PROVENANCE</span>
-          {company.evidence.map((item) => (
-            <div key={item.provider}>
+          {sourceEvidence.map((item) => (
+            <div key={item.providerId || item.provider}>
               <strong>{item.provider}</strong>
               <small>observé {new Date(item.observedAt).toLocaleString("fr-FR")} · confiance {Math.round(item.confidence * 100)}%</small>
             </div>
