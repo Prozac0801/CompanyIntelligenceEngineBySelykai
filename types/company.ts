@@ -129,6 +129,9 @@ export interface ScoreBasis {
   missingFamilies: string[];
   benchmarkStatus: "not-enough-data" | "available";
   benchmarkDescription: string;
+  benchmarkPercentile?: number;
+  benchmarkSampleSize?: number;
+  benchmarkScope?: string;
 }
 
 export interface ExplainableScore {
