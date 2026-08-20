@@ -76,6 +76,7 @@ function statusOf(value?: string): CompanySummary["status"] {
 function evidence(): SourceEvidence[] {
   return [
     {
+      providerId: "recherche-entreprises",
       provider: "API Recherche d'entreprises",
       kind: "official",
       observedAt: new Date().toISOString(),
