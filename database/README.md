@@ -7,6 +7,7 @@
 - Region: EU Central / Frankfurt
 - PostgreSQL: 18
 - Default database: `neondb`
+- Managed Neon Auth: provisioned
 
 No connection string or credential is stored in Git.
 
@@ -16,25 +17,28 @@ No connection string or credential is stored in Git.
 
 Applied on 2026-08-20 after validation on an isolated Neon branch.
 
-Neon migration workflow ID used during validation:
+Migration workflow ID: `7678dfef-f07f-4bc7-b28f-479c4f02d726`
 
-`7678dfef-f07f-4bc7-b28f-479c4f02d726`
+Foundation created for providers, companies, establishments, people, domains, contacts, sourced facts, snapshots, events, signals, scores, provider-run observability and API cache.
 
-The migration creates the foundation for:
+Production smoke test: company insertion, facts, snapshots, events, signals, scores and cascading cleanup.
 
-- providers;
-- companies and establishments;
-- public company people;
-- domains and contacts;
-- sourced facts;
-- immutable snapshots;
-- detected events;
-- inferred signals;
-- explainable scores;
-- provider-run observability;
-- API cache.
+### 0002 — Workspaces, watchlists and alerts
 
-The production smoke test covered company insertion, facts, snapshots, events, signals, scores and cascading cleanup.
+Applied on 2026-08-20 after validation on an isolated Neon branch.
+
+Migration workflow ID: `cee996ea-52b3-4711-9a0e-511fc05ad9c4`
+
+Adds:
+
+- workspaces ;
+- workspace memberships ;
+- watchlists ;
+- companies monitored per watchlist ;
+- daily / weekly / manual monitoring cadence ;
+- deduplicated intelligence alerts.
+
+Validation covered cross-workspace isolation, due-target selection, alert deduplication, scheduling of the next check and cascading cleanup. A second smoke test was executed successfully after promotion to Neon main.
 
 ## Migration policy
 
