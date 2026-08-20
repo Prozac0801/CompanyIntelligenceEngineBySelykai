@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { providerStatusFromHttp, recordProviderRun } from "@/lib/providers/observability";
 import type { SourceEvidence } from "@/types/company";
 import type { CompanyFact, FactValue } from "@/types/intelligence";
 
@@ -80,14 +81,34 @@ async function login(): Promise<string> {
   const auth = credentials();
   if (!auth) throw new Error("INPI RNE credentials are not configured.");
 
-  const response = await fetch(`${INPI_API_BASE}/sso/login`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(auth),
-    cache: "no-store",
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await fetch(`${INPI_API_BASE}/sso/login`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(auth),
+      cache: "no-store",
+    });
+  } catch (error) {
+    await recordProviderRun({
+      providerId: "inpi-rne",
+      operation: "authenticate",
+      status: "network_error",
+      latencyMs: Date.now() - startedAt,
+    });
+    throw error;
+  }
+
+  await recordProviderRun({
+    providerId: "inpi-rne",
+    operation: "authenticate",
+    status: providerStatusFromHttp(response.status),
+    httpStatus: response.status,
+    latencyMs: Date.now() - startedAt,
   });
 
   if (!response.ok) {
@@ -109,20 +130,40 @@ async function token(forceRefresh = false): Promise<string> {
 }
 
 async function getJson<T>(path: string): Promise<T | null> {
-  const perform = async (bearer: string) =>
-    fetch(`${INPI_API_BASE}${path}`, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${bearer}`,
-      },
-      cache: "no-store",
-    });
+  const startedAt = Date.now();
+  const perform = async (bearer: string) => {
+    try {
+      return await fetch(`${INPI_API_BASE}${path}`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${bearer}`,
+        },
+        cache: "no-store",
+      });
+    } catch (error) {
+      await recordProviderRun({
+        providerId: "inpi-rne",
+        operation: "company_lookup",
+        status: "network_error",
+        latencyMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
+  };
 
   let response = await perform(await token());
   if (response.status === 401) {
     cachedToken = null;
     response = await perform(await token(true));
   }
+
+  await recordProviderRun({
+    providerId: "inpi-rne",
+    operation: "company_lookup",
+    status: providerStatusFromHttp(response.status),
+    httpStatus: response.status,
+    latencyMs: Date.now() - startedAt,
+  });
 
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`INPI RNE request failed (${response.status}).`);
