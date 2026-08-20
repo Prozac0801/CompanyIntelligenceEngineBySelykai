@@ -1,5 +1,6 @@
--- Selykai Company Intelligence Engine — PostgreSQL foundation
--- Applied only after the Git repository is validated and a dedicated Neon project is created.
+-- Selykai Company Intelligence Engine — PostgreSQL foundation v0.2
+-- Source of truth for the first dedicated Neon database.
+-- FACT != INFERENCE: source facts, detected events and inferred signals are stored separately.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -44,7 +45,8 @@ CREATE TABLE IF NOT EXISTS establishments (
   longitude numeric(9,6),
   opening_date date,
   closing_date date,
-  observed_at timestamptz NOT NULL DEFAULT now()
+  first_observed_at timestamptz NOT NULL DEFAULT now(),
+  last_observed_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS company_people (
@@ -54,7 +56,34 @@ CREATE TABLE IF NOT EXISTS company_people (
   role text,
   person_type text,
   provider_id text REFERENCES providers(id),
-  observed_at timestamptz NOT NULL DEFAULT now()
+  first_observed_at timestamptz NOT NULL DEFAULT now(),
+  last_observed_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS company_domains (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  domain text NOT NULL,
+  is_primary boolean NOT NULL DEFAULT false,
+  provider_id text REFERENCES providers(id),
+  confidence numeric(4,3) CHECK (confidence >= 0 AND confidence <= 1),
+  first_observed_at timestamptz NOT NULL DEFAULT now(),
+  last_observed_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(company_id, domain)
+);
+
+CREATE TABLE IF NOT EXISTS company_contacts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  full_name text,
+  role text,
+  email text,
+  phone text,
+  provider_id text REFERENCES providers(id),
+  verification_status text,
+  confidence numeric(4,3) CHECK (confidence >= 0 AND confidence <= 1),
+  first_observed_at timestamptz NOT NULL DEFAULT now(),
+  last_observed_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS company_facts (
@@ -66,11 +95,22 @@ CREATE TABLE IF NOT EXISTS company_facts (
   value jsonb NOT NULL,
   confidence numeric(4,3) NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
   source_url text,
-  observed_at timestamptz NOT NULL DEFAULT now(),
+  first_observed_at timestamptz NOT NULL DEFAULT now(),
+  last_observed_at timestamptz NOT NULL DEFAULT now(),
   valid_from timestamptz,
   valid_to timestamptz,
   fingerprint text NOT NULL,
   UNIQUE(company_id, provider_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS company_snapshots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  snapshot_hash text NOT NULL,
+  facts jsonb NOT NULL,
+  first_captured_at timestamptz NOT NULL DEFAULT now(),
+  last_captured_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(company_id, snapshot_hash)
 );
 
 CREATE TABLE IF NOT EXISTS company_events (
@@ -80,10 +120,23 @@ CREATE TABLE IF NOT EXISTS company_events (
   event_type text NOT NULL,
   title text NOT NULL,
   description text,
-  event_date timestamptz,
+  event_date timestamptz NOT NULL,
   confidence numeric(4,3) CHECK (confidence >= 0 AND confidence <= 1),
-  evidence_fact_ids uuid[] NOT NULL DEFAULT '{}',
-  created_at timestamptz NOT NULL DEFAULT now()
+  evidence_keys text[] NOT NULL DEFAULT '{}',
+  fingerprint text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(company_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS company_signals (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  signal_type text NOT NULL,
+  label text NOT NULL,
+  strength integer NOT NULL CHECK (strength >= 0 AND strength <= 100),
+  reason text NOT NULL,
+  evidence_event_types text[] NOT NULL DEFAULT '{}',
+  generated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS company_scores (
@@ -121,15 +174,23 @@ CREATE TABLE IF NOT EXISTS api_cache (
 CREATE INDEX IF NOT EXISTS idx_companies_naf ON companies(naf_code);
 CREATE INDEX IF NOT EXISTS idx_companies_state ON companies(administrative_state);
 CREATE INDEX IF NOT EXISTS idx_establishments_company ON establishments(company_id);
-CREATE INDEX IF NOT EXISTS idx_facts_company_observed ON company_facts(company_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_people_company ON company_people(company_id);
+CREATE INDEX IF NOT EXISTS idx_domains_company ON company_domains(company_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_company ON company_contacts(company_id);
+CREATE INDEX IF NOT EXISTS idx_facts_company_last_seen ON company_facts(company_id, last_observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_facts_company_key ON company_facts(company_id, fact_key, last_observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_company_captured ON company_snapshots(company_id, last_captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_company_date ON company_events(company_id, event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_signals_company_generated ON company_signals(company_id, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scores_company_type ON company_scores(company_id, score_type, computed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_provider_runs_started ON provider_runs(provider_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cache_expiry ON api_cache(expires_at);
 
 INSERT INTO providers (id, name, kind, base_url, enabled)
 VALUES
   ('recherche-entreprises', 'API Recherche d''entreprises', 'official', 'https://recherche-entreprises.api.gouv.fr', true),
   ('inpi-rne', 'INPI / RNE', 'official', 'https://data.inpi.fr', false),
   ('apilayer', 'APILayer', 'commercial', 'https://apilayer.com', false),
-  ('hunter', 'Hunter', 'commercial', 'https://hunter.io', false)
+  ('hunter', 'Hunter', 'commercial', 'https://hunter.io', false),
+  ('selykai-engine', 'Selykai Intelligence Engine', 'inference', NULL, true)
 ON CONFLICT (id) DO NOTHING;
