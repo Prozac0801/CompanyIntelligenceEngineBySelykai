@@ -15,7 +15,7 @@ function primaryEvidence(company: CompanyProfile): SourceEvidence {
   };
 }
 
-function makeFact(
+export function createFact(
   type: CompanyFact["type"],
   key: string,
   value: FactValue,
@@ -43,7 +43,7 @@ export function factsFromCompany(company: CompanyProfile): CompanyFact[] {
     ["governance", "executive_names", executiveNames],
   ];
 
-  return candidates.map(([type, key, value]) => makeFact(type, key, value, source));
+  return candidates.map(([type, key, value]) => createFact(type, key, value, source));
 }
 
 export function factMap(facts: CompanyFact[]): Map<string, CompanyFact> {
