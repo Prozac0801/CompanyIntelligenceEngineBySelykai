@@ -9,6 +9,8 @@ import { providerStatusFromHttp, recordProviderRun } from "./observability";
 
 const APILAYER_DOCS = "https://apilayer.com/products";
 
+type ApiLayerAuthMode = "apikey_header" | "access_key_query";
+
 export function isApiLayerProviderConfigured(): boolean {
   return Boolean(process.env.APILAYER_API_KEY?.trim());
 }
@@ -24,6 +26,46 @@ function evidence(sourceUrl: string, confidence = 0.8): SourceEvidence {
   };
 }
 
+async function apilayerRequest(
+  baseUrl: string,
+  params: Record<string, string>,
+  operation: string,
+  key: string,
+  authMode: ApiLayerAuthMode,
+): Promise<Response | null> {
+  const url = new URL(baseUrl);
+  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+  if (authMode === "access_key_query") url.searchParams.set("access_key", key);
+
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        ...(authMode === "apikey_header" ? { apikey: key } : {}),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(9_000),
+    });
+    await recordProviderRun({
+      providerId: "apilayer",
+      operation: `${operation}:${authMode}`,
+      status: providerStatusFromHttp(response.status),
+      httpStatus: response.status,
+      latencyMs: Date.now() - startedAt,
+    });
+    return response;
+  } catch {
+    await recordProviderRun({
+      providerId: "apilayer",
+      operation: `${operation}:${authMode}`,
+      status: "network_error",
+      latencyMs: Date.now() - startedAt,
+    });
+    return null;
+  }
+}
+
 async function apilayerGet<T>(
   baseUrl: string,
   params: Record<string, string>,
@@ -32,33 +74,18 @@ async function apilayerGet<T>(
   const key = process.env.APILAYER_API_KEY?.trim();
   if (!key) return null;
 
-  const url = new URL(baseUrl);
-  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-  url.searchParams.set("access_key", key);
+  // The current APILayer Marketplace authenticates with the `apikey` header,
+  // while migrated Suite products still document `access_key` on legacy product hosts.
+  // Prefer the current header mode, then retry once with the legacy query mode on auth failure.
+  let response = await apilayerRequest(baseUrl, params, operation, key, "apikey_header");
+  if (response && (response.status === 401 || response.status === 403)) {
+    response = await apilayerRequest(baseUrl, params, operation, key, "access_key_query");
+  }
 
-  const startedAt = Date.now();
+  if (!response?.ok) return null;
   try {
-    const response = await fetch(url, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(9_000),
-    });
-    await recordProviderRun({
-      providerId: "apilayer",
-      operation,
-      status: providerStatusFromHttp(response.status),
-      httpStatus: response.status,
-      latencyMs: Date.now() - startedAt,
-    });
-    if (!response.ok) return null;
     return (await response.json()) as T;
   } catch {
-    await recordProviderRun({
-      providerId: "apilayer",
-      operation,
-      status: "network_error",
-      latencyMs: Date.now() - startedAt,
-    });
     return null;
   }
 }
