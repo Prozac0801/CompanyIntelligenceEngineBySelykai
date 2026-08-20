@@ -27,7 +27,7 @@ function batchSize(): number {
   return Math.max(1, Math.min(configured, 100));
 }
 
-export async function POST(request: Request) {
+async function handleMonitoring(request: Request) {
   if (!process.env.CRON_SECRET) {
     return NextResponse.json(
       { error: "monitoring_not_configured" },
@@ -58,4 +58,14 @@ export async function POST(request: Request) {
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
+}
+
+// Vercel Cron invokes route handlers with GET.
+export async function GET(request: Request) {
+  return handleMonitoring(request);
+}
+
+// POST remains available for explicit/manual triggering by trusted infrastructure.
+export async function POST(request: Request) {
+  return handleMonitoring(request);
 }
