@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { checkDatabase } from "@/lib/db";
-import { isAuthConfigured } from "@/lib/auth/server";
+import { authConfigurationHealth } from "@/lib/auth/server";
 import { isInpiRneConfigured } from "@/lib/providers";
 import { LIVE_PROVIDERS } from "@/lib/providers/catalog";
 
 export async function GET() {
   const database = await checkDatabase();
+  const auth = authConfigurationHealth();
   const healthy = !database.configured || (database.reachable && database.schemaReady);
   const configuredSources = [
     ...LIVE_PROVIDERS.map((provider) => provider.id),
@@ -20,7 +21,7 @@ export async function GET() {
       database,
       auth: {
         provider: "neon-auth",
-        configured: isAuthConfigured(),
+        ...auth,
         protectedSurface: "/workspace",
       },
       configuredSources,
