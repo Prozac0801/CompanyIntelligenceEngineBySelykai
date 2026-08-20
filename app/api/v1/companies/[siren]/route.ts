@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCompanyBySiren } from "@/lib/providers";
-import { computeOpportunityScore } from "@/lib/scoring/opportunity";
+import { analyzeCompany } from "@/lib/intelligence/company-engine";
 
 export async function GET(_request: Request, context: { params: Promise<{ siren: string }> }) {
   const { siren } = await context.params;
@@ -9,10 +8,15 @@ export async function GET(_request: Request, context: { params: Promise<{ siren:
   }
 
   try {
-    const company = await getCompanyBySiren(siren);
-    if (!company) return NextResponse.json({ error: "Entreprise introuvable." }, { status: 404 });
-    return NextResponse.json({ company, score: computeOpportunityScore(company) }, {
-      headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" },
+    const analysis = await analyzeCompany(siren);
+    if (!analysis) return NextResponse.json({ error: "Entreprise introuvable." }, { status: 404 });
+
+    return NextResponse.json(analysis, {
+      headers: {
+        "Cache-Control": analysis.meta.databaseConfigured
+          ? "private, no-store"
+          : "public, s-maxage=3600, stale-while-revalidate=86400",
+      },
     });
   } catch (error) {
     return NextResponse.json(
