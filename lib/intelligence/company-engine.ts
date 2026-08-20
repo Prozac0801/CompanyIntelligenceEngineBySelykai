@@ -9,6 +9,7 @@ import { detectCompanyEvents } from "@/lib/intelligence/events";
 import { factMap, factsFromCompany } from "@/lib/intelligence/facts";
 import { enrichCompany, factsFromEnrichment } from "@/lib/intelligence/enrichment";
 import { inferSignals } from "@/lib/intelligence/signals";
+import { loadOpportunityBenchmark } from "@/lib/persistence/benchmark-repository";
 import { loadLatestFacts, persistCompanyAnalysis } from "@/lib/persistence/company-repository";
 import type { CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
@@ -50,8 +51,23 @@ export async function analyzeCompany(
   const events = detectCompanyEvents(previousFacts, factMap(facts));
   const signals = inferSignals(events);
   const score = computeOpportunityScore({ company, facts, events, signals, enrichment });
-  let persisted = false;
 
+  if (databaseConfigured) {
+    const benchmark = await loadOpportunityBenchmark({
+      nafCode: company.nafCode,
+      scoreVersion: score.version,
+      currentScore: score.value,
+    });
+    if (benchmark) {
+      score.basis.benchmarkStatus = "available";
+      score.basis.benchmarkPercentile = benchmark.percentile;
+      score.basis.benchmarkSampleSize = benchmark.sampleSize;
+      score.basis.benchmarkScope = benchmark.scope;
+      score.basis.benchmarkDescription = `Percentile ${benchmark.percentile} sur ${benchmark.sampleSize} entreprises comparables (${benchmark.scope}).`;
+    }
+  }
+
+  let persisted = false;
   if (databaseConfigured && options.persist !== false) {
     persisted = await persistCompanyAnalysis({ company, enrichment, facts, events, signals, score });
   }
