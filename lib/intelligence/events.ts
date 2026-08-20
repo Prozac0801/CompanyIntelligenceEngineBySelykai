@@ -85,5 +85,18 @@ export function detectCompanyEvents(
     });
   }
 
+  const bodacc = changed(previous, current, "bodacc_latest_event_id");
+  if (bodacc && bodacc.after.value) {
+    const family = current.get("bodacc_latest_family")?.value;
+    events.push({
+      type: "BODACC_ACTIVITY",
+      title: "Nouvelle annonce BODACC détectée",
+      description: family ? `Nouvel événement officiel : ${String(family)}` : "Une nouvelle annonce officielle BODACC est apparue.",
+      observedAt: now,
+      confidence: bodacc.after.evidence.confidence,
+      evidenceKeys: ["bodacc_latest_event_id", "bodacc_latest_family"],
+    });
+  }
+
   return events;
 }
