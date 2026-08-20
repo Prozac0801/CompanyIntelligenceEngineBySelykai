@@ -44,7 +44,6 @@ export function SearchCommand() {
 
   useEffect(() => {
     if (!loading) return;
-    setPhaseIndex(0);
     const timer = window.setInterval(() => {
       setPhaseIndex((current) => Math.min(current + 1, SEARCH_PHASES.length - 1));
     }, 320);
@@ -56,6 +55,7 @@ export function SearchCommand() {
     const q = query.trim();
     if (q.length < 2) return;
 
+    setPhaseIndex(0);
     setLoading(true);
     setError(null);
     setHasSearched(true);
