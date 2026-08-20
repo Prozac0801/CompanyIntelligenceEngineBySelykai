@@ -1,6 +1,7 @@
 export type SourceKind = "official" | "commercial" | "web" | "inference";
 
 export interface SourceEvidence {
+  providerId?: string;
   provider: string;
   kind: SourceKind;
   observedAt: string;
