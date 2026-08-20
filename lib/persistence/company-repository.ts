@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { hasDatabase, sqlClient } from "@/lib/db";
-import type { CompanyProfile, ExplainableScore, SourceKind } from "@/types/company";
+import type {
+  CompanyEnrichment,
+  CompanyProfile,
+  ExplainableScore,
+  SourceKind,
+} from "@/types/company";
 import type { CompanyEvent, CompanyFact, CompanySignal, FactValue } from "@/types/intelligence";
 
 interface LatestFactRow {
@@ -79,25 +84,27 @@ export async function loadLatestFacts(siren: string): Promise<Map<string, Compan
 
 export async function persistCompanyAnalysis(input: {
   company: CompanyProfile;
+  enrichment: CompanyEnrichment;
   facts: CompanyFact[];
   events: CompanyEvent[];
   signals: CompanySignal[];
   score: ExplainableScore;
 }): Promise<boolean> {
   if (!hasDatabase()) return false;
-  const { company, facts, events, signals, score } = input;
+  const { company, enrichment, facts, events, signals, score } = input;
   const sql = sqlClient();
   const headOfficeSiret = company.establishments.find((item) => item.headOffice)?.siret || null;
+  const canonicalDomain = enrichment.web?.domain || null;
 
   const companyRows = (await sql`
     INSERT INTO companies (
       siren, legal_name, display_name, legal_form_code, naf_code,
       administrative_state, employee_band, company_category, employer,
-      creation_date, head_office_siret, updated_at
+      creation_date, head_office_siret, canonical_domain, updated_at
     ) VALUES (
       ${company.siren}, ${company.name}, ${company.name}, ${company.legalForm || null}, ${company.nafCode || null},
       ${company.status}, ${company.employeeBand || null}, ${company.companyCategory || null}, ${company.employer ?? null},
-      ${company.createdAt || null}, ${headOfficeSiret}, now()
+      ${company.createdAt || null}, ${headOfficeSiret}, ${canonicalDomain}, now()
     )
     ON CONFLICT (siren) DO UPDATE SET
       legal_name = EXCLUDED.legal_name,
@@ -110,12 +117,31 @@ export async function persistCompanyAnalysis(input: {
       employer = EXCLUDED.employer,
       creation_date = EXCLUDED.creation_date,
       head_office_siret = EXCLUDED.head_office_siret,
+      canonical_domain = COALESCE(EXCLUDED.canonical_domain, companies.canonical_domain),
       updated_at = now()
     RETURNING id
   `) as unknown as Array<{ id: string }>;
 
   const companyId = companyRows[0]?.id;
   if (!companyId) throw new Error("Impossible de persister l’entreprise.");
+
+  if (canonicalDomain) {
+    const domainEvidence = enrichment.evidence.find((item) => item.providerId === "hunter") ||
+      enrichment.evidence.find((item) => item.providerId === "apilayer");
+    await sql`
+      INSERT INTO company_domains (
+        company_id, domain, is_primary, provider_id, confidence,
+        first_observed_at, last_observed_at
+      ) VALUES (
+        ${companyId}, ${canonicalDomain}, true, ${domainEvidence?.providerId || "hunter"},
+        ${domainEvidence?.confidence ?? 0.75}, now(), now()
+      )
+      ON CONFLICT (company_id, domain) DO UPDATE SET
+        is_primary = true,
+        confidence = GREATEST(company_domains.confidence, EXCLUDED.confidence),
+        last_observed_at = now()
+    `;
+  }
 
   for (const establishment of company.establishments) {
     if (!establishment.siret) continue;

@@ -1,4 +1,6 @@
 import { isInpiRneConfigured } from "./inpi-rne";
+import { isApiLayerProviderConfigured } from "./apilayer";
+import { isHunterProviderConfigured } from "./hunter";
 
 export type ProviderStatus = "live" | "configured" | "next";
 
@@ -8,14 +10,6 @@ export interface ProviderCatalogItem {
   role: string;
   kind: "official" | "commercial" | "web";
   status: ProviderStatus;
-}
-
-export function isApiLayerConfigured(): boolean {
-  return Boolean(process.env.APILAYER_API_KEY?.trim());
-}
-
-export function isHunterConfigured(): boolean {
-  return Boolean(process.env.HUNTER_API_KEY?.trim());
 }
 
 export function getProviderCatalog(): readonly ProviderCatalogItem[] {
@@ -30,23 +24,23 @@ export function getProviderCatalog(): readonly ProviderCatalogItem[] {
     {
       id: "inpi-rne",
       name: "INPI / RNE",
-      role: "Événements · actes · comptes",
+      role: "RNE · événements · actes · comptes",
       kind: "official",
       status: isInpiRneConfigured() ? "live" : "next",
     },
     {
       id: "apilayer",
       name: "APILayer",
-      role: "Web · email · géolocalisation · news",
-      kind: "commercial",
-      status: isApiLayerConfigured() ? "configured" : "next",
+      role: "SERP · actualités · géolocalisation",
+      kind: "web",
+      status: isApiLayerProviderConfigured() ? "live" : "next",
     },
     {
       id: "hunter",
       name: "Hunter",
-      role: "Contacts professionnels à la demande",
+      role: "Domaine · firmographie · technologies · contacts",
       kind: "commercial",
-      status: isHunterConfigured() ? "configured" : "next",
+      status: isHunterProviderConfigured() ? "live" : "next",
     },
   ] as const;
 }

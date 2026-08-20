@@ -7,12 +7,14 @@ import {
 import { computeOpportunityScore } from "@/lib/scoring/opportunity";
 import { detectCompanyEvents } from "@/lib/intelligence/events";
 import { factMap, factsFromCompany } from "@/lib/intelligence/facts";
+import { enrichCompany, factsFromEnrichment } from "@/lib/intelligence/enrichment";
 import { inferSignals } from "@/lib/intelligence/signals";
+import { loadOpportunityBenchmark } from "@/lib/persistence/benchmark-repository";
 import { loadLatestFacts, persistCompanyAnalysis } from "@/lib/persistence/company-repository";
 import type { CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
 
-export const ENGINE_VERSION = "0.2.0";
+export const ENGINE_VERSION = "0.3.0";
 
 async function supplementalFacts(siren: string): Promise<CompanyFact[]> {
   if (!isInpiRneConfigured()) return [];
@@ -35,20 +37,44 @@ export async function analyzeCompany(
   const company = await getCompanyBySiren(siren);
   if (!company) return null;
 
-  const facts = [...factsFromCompany(company), ...(await supplementalFacts(siren))];
+  const [rneFacts, enrichment] = await Promise.all([
+    supplementalFacts(siren),
+    enrichCompany(company),
+  ]);
+  const facts = [
+    ...factsFromCompany(company),
+    ...rneFacts,
+    ...factsFromEnrichment(enrichment),
+  ];
   const databaseConfigured = hasDatabase();
   const previousFacts = databaseConfigured ? await loadLatestFacts(siren) : new Map();
   const events = detectCompanyEvents(previousFacts, factMap(facts));
   const signals = inferSignals(events);
-  const score = computeOpportunityScore(company);
-  let persisted = false;
+  const score = computeOpportunityScore({ company, facts, events, signals, enrichment });
 
+  if (databaseConfigured) {
+    const benchmark = await loadOpportunityBenchmark({
+      nafCode: company.nafCode,
+      scoreVersion: score.version,
+      currentScore: score.value,
+    });
+    if (benchmark) {
+      score.basis.benchmarkStatus = "available";
+      score.basis.benchmarkPercentile = benchmark.percentile;
+      score.basis.benchmarkSampleSize = benchmark.sampleSize;
+      score.basis.benchmarkScope = benchmark.scope;
+      score.basis.benchmarkDescription = `Percentile ${benchmark.percentile} sur ${benchmark.sampleSize} entreprises comparables (${benchmark.scope}).`;
+    }
+  }
+
+  let persisted = false;
   if (databaseConfigured && options.persist !== false) {
-    persisted = await persistCompanyAnalysis({ company, facts, events, signals, score });
+    persisted = await persistCompanyAnalysis({ company, enrichment, facts, events, signals, score });
   }
 
   return {
     company,
+    enrichment,
     facts,
     events,
     signals,

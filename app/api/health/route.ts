@@ -16,7 +16,7 @@ export async function GET() {
     {
       status: healthy ? "ok" : "degraded",
       service: "Selykai Company Intelligence Engine",
-      version: "0.2.0",
+      version: "0.3.0",
       database,
       auth: {
         provider: "neon-auth",
