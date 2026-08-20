@@ -31,5 +31,15 @@ export function inferSignals(events: CompanyEvent[]): CompanySignal[] {
     });
   }
 
+  if (types.has("BODACC_ACTIVITY")) {
+    signals.push({
+      type: "CHANGE",
+      label: "Activité juridique récente",
+      strength: 60,
+      reason: "Une nouvelle annonce BODACC est apparue depuis la précédente observation.",
+      evidenceEventTypes: ["BODACC_ACTIVITY"],
+    });
+  }
+
   return signals;
 }
