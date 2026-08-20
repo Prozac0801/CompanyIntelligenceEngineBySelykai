@@ -1,9 +1,19 @@
-import type { ExplainableScore, SourceEvidence } from "@/types/company";
+import type { CompanyEnrichment, ExplainableScore, SourceEvidence } from "@/types/company";
 
 export type FactValue = string | number | boolean | null | string[];
 
 export interface CompanyFact {
-  type: "identity" | "activity" | "location" | "workforce" | "governance" | "structure";
+  type:
+    | "identity"
+    | "activity"
+    | "location"
+    | "workforce"
+    | "governance"
+    | "structure"
+    | "web"
+    | "news"
+    | "commercial"
+    | "financial";
   key: string;
   value: FactValue;
   evidence: SourceEvidence;
@@ -36,6 +46,7 @@ export interface CompanyAnalysisMeta {
 
 export interface CompanyAnalysisResult<TCompany> {
   company: TCompany;
+  enrichment: CompanyEnrichment;
   facts: CompanyFact[];
   events: CompanyEvent[];
   signals: CompanySignal[];
