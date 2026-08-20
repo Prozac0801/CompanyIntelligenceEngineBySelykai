@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { checkDatabase } from "@/lib/db";
+import { isInpiRneConfigured } from "@/lib/providers";
 import { LIVE_PROVIDERS } from "@/lib/providers/catalog";
 
 export async function GET() {
   const database = await checkDatabase();
   const healthy = !database.configured || (database.reachable && database.schemaReady);
+  const configuredSources = [
+    ...LIVE_PROVIDERS.map((provider) => provider.id),
+    ...(isInpiRneConfigured() ? ["inpi-rne"] : []),
+  ];
 
   return NextResponse.json(
     {
@@ -12,7 +17,7 @@ export async function GET() {
       service: "Selykai Company Intelligence Engine",
       version: "0.2.0",
       database,
-      liveSources: LIVE_PROVIDERS.map((provider) => provider.id),
+      configuredSources,
       timestamp: new Date().toISOString(),
     },
     {
