@@ -244,10 +244,9 @@ function digitalScore(input: ScoreInput): { subscore: ScoreSubscore; factors: Sc
     value += 8;
     evidence.push("Description d’activité web disponible");
   }
-  if (web.linkedinHandle) {
-    value += 7;
-    evidence.push("Présence LinkedIn détectée");
-  }
+
+  // A social handle returned by a commercial enrichment provider is useful context,
+  // but is not trusted enough to influence scoring until it is independently recouped.
 
   return {
     subscore: {
@@ -255,7 +254,7 @@ function digitalScore(input: ScoreInput): { subscore: ScoreSubscore; factors: Sc
       label: "Digital Presence",
       value: clamp(value),
       weight: WEIGHTS.digital,
-      confidence: confidenceForEvidence(evidence.length, 5),
+      confidence: confidenceForEvidence(evidence.length, 4),
       evidence,
     },
     factors,
@@ -334,7 +333,7 @@ export function computeOpportunityScore(input: ScoreInput): ExplainableScore {
     ["RNE", hasFact(input.facts, "rne_siren")],
     ["Web / SERP", Boolean(input.enrichment.web?.domain || input.enrichment.web?.websiteUrl)],
     ["Firmographie web", Boolean(input.enrichment.web?.industry || input.enrichment.web?.technologies.length)],
-    ["Actualités", input.enrichment.evidence.some((item) => item.providerId === "apilayer")],
+    ["Actualités", input.enrichment.news.length > 0],
     ["Historique", input.events.length > 0 || input.signals.length > 0],
   ] as const;
   const present = families.filter(([, available]) => available).map(([label]) => label);
@@ -356,8 +355,8 @@ export function computeOpportunityScore(input: ScoreInput): ExplainableScore {
       evidenceFamilies: present,
       missingFamilies: missing,
       benchmarkStatus: "not-enough-data",
-      benchmarkDescription: "Benchmark secteur/taille non affiché tant qu’un échantillon comparable suffisant n’est pas historisé dans le moteur.",
+      benchmarkDescription: "Benchmark sectoriel non affiché tant qu’un échantillon comparable suffisant n’est pas historisé dans le moteur.",
     },
-    version: "opportunity-v0.2-composite",
+    version: "opportunity-v0.2.1-composite",
   };
 }
