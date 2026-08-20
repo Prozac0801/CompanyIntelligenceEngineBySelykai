@@ -1,11 +1,5 @@
 import { CheckCircle2, CircleDashed, Database, ScanSearch } from "lucide-react";
-
-const sources = [
-  { name: "API Recherche d'entreprises", role: "Identité · SIREN · établissements", state: "live" },
-  { name: "INPI / RNE", role: "Événements · actes · comptes", state: "next" },
-  { name: "APILayer", role: "Web · email · géolocalisation · news", state: "next" },
-  { name: "Hunter", role: "Contacts professionnels à la demande", state: "next" },
-];
+import { PROVIDER_CATALOG } from "@/lib/providers/catalog";
 
 export function SourceRail() {
   return (
@@ -15,13 +9,13 @@ export function SourceRail() {
         <small>Chaque donnée garde sa preuve et sa date d’observation.</small>
       </div>
       <div className="source-rail">
-        {sources.map((source) => (
-          <div className="source-item" key={source.name}>
-            <div className={`source-state ${source.state}`}>
-              {source.state === "live" ? <CheckCircle2 size={17} /> : <CircleDashed size={17} />}
+        {PROVIDER_CATALOG.map((source) => (
+          <div className="source-item" key={source.id}>
+            <div className={`source-state ${source.status}`}>
+              {source.status === "live" ? <CheckCircle2 size={17} /> : <CircleDashed size={17} />}
             </div>
             <div><strong>{source.name}</strong><span>{source.role}</span></div>
-            <small>{source.state === "live" ? "LIVE" : "NEXT"}</small>
+            <small>{source.status === "live" ? "LIVE" : "NEXT"}</small>
           </div>
         ))}
       </div>
