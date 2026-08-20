@@ -149,3 +149,16 @@ button, input { font: inherit; }
   .fact-grid { grid-template-columns: 1fr; }
   .evidence-footer { grid-template-columns: 1fr; }
 }
+.fatal-state, .loading-state { width: min(760px, calc(100% - 32px)); margin: 10vh auto; }
+.fatal-state > svg { color: #b94750; }
+.fatal-state > span { display: block; margin-top: 18px; color: #8a939b; font-size: 10px; }
+.fatal-state h1 { margin: 12px 0; max-width: 680px; font-size: clamp(36px, 6vw, 64px); letter-spacing: -.05em; line-height: 1; }
+.fatal-state p { max-width: 620px; color: #727c85; line-height: 1.65; }
+.fatal-state button { margin-top: 18px; border: 0; border-radius: 11px; background: #111619; color: #fff; display: inline-flex; align-items: center; gap: 8px; padding: 12px 15px; cursor: pointer; }
+.loading-state { padding-top: 4vh; }
+.loading-bar, .loading-title, .loading-copy, .loading-panel { background: linear-gradient(90deg, #e5e9ec 25%, #f3f5f6 50%, #e5e9ec 75%); background-size: 200% 100%; animation: skeleton 1.4s linear infinite; }
+.loading-bar { width: 120px; height: 10px; border-radius: 8px; }
+.loading-title { width: min(620px, 92%); height: 64px; border-radius: 14px; margin-top: 28px; }
+.loading-copy { width: min(500px, 80%); height: 18px; border-radius: 8px; margin-top: 22px; }
+.loading-panel { height: 220px; border-radius: 20px; margin-top: 42px; }
+@keyframes skeleton { to { background-position: -200% 0; } }

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Activity, Building2, DatabaseZap, Radar, Search, Settings2 } from "lucide-react";
 
@@ -8,7 +9,7 @@ const nav = [
   { label: "Sources", icon: DatabaseZap, href: "/", active: false },
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
