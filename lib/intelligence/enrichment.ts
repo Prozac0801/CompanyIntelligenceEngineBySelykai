@@ -6,7 +6,6 @@ import type {
 } from "@/types/company";
 import type { CompanyFact } from "@/types/intelligence";
 import {
-  geocodeCompanyAddress,
   getCompanyNews,
   getSerpWebIntelligence,
 } from "@/lib/providers/apilayer";
@@ -46,14 +45,12 @@ function mergeWeb(
 export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnrichment> {
   const domainPromise = resolveHunterDomain(company.name);
   const newsPromise = getCompanyNews(company.name);
-  const geoPromise = geocodeCompanyAddress(company.address);
 
   const domain = await domainPromise;
-  const [initialHunter, serpResult, newsResult, geoResult] = await Promise.all([
+  const [initialHunter, serpResult, newsResult] = await Promise.all([
     domain ? getHunterCompanyIntelligence(domain) : Promise.resolve(null),
     getSerpWebIntelligence(company.name, domain),
     newsPromise,
-    geoPromise,
   ]);
 
   const fallbackDomain = domain || serpResult.web?.domain;
@@ -65,13 +62,11 @@ export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnr
     hunterResult?.evidence,
     serpResult.evidence,
     newsResult.evidence,
-    geoResult.evidence,
   ].filter((item): item is SourceEvidence => Boolean(item));
 
   return {
     web: mergeWeb(hunterResult?.web, serpResult.web),
     news: newsResult.news,
-    geo: geoResult.geo,
     evidence,
   };
 }
@@ -111,10 +106,6 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
           apiLayerEvidence,
         ),
       );
-    }
-    if (enrichment.geo) {
-      facts.push(createFact("location", "geocoded_latitude", enrichment.geo.latitude, apiLayerEvidence));
-      facts.push(createFact("location", "geocoded_longitude", enrichment.geo.longitude, apiLayerEvidence));
     }
   }
 
