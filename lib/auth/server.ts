@@ -3,8 +3,27 @@ import { createNeonAuth } from "@neondatabase/auth/next/server";
 const configuredBaseUrl = process.env.NEON_AUTH_BASE_URL?.trim();
 const configuredCookieSecret = process.env.NEON_AUTH_COOKIE_SECRET?.trim();
 
+export interface AuthConfigurationHealth {
+  configured: boolean;
+  baseUrlConfigured: boolean;
+  cookieSecretConfigured: boolean;
+}
+
+export function authConfigurationHealth(): AuthConfigurationHealth {
+  const baseUrlConfigured = Boolean(configuredBaseUrl);
+  const cookieSecretConfigured = Boolean(
+    configuredCookieSecret && configuredCookieSecret.length >= 32,
+  );
+
+  return {
+    configured: baseUrlConfigured && cookieSecretConfigured,
+    baseUrlConfigured,
+    cookieSecretConfigured,
+  };
+}
+
 export function isAuthConfigured(): boolean {
-  return Boolean(configuredBaseUrl && configuredCookieSecret && configuredCookieSecret.length >= 32);
+  return authConfigurationHealth().configured;
 }
 
 // Build-safe placeholders keep CI deterministic. Every user-facing auth operation checks
