@@ -80,9 +80,10 @@ export async function analyzeCompany(
   }
 
   const summary = buildCompanyIntelligenceSummary({ company, enrichment, score, signals });
+  const shouldPersist = options.persist ?? process.env.VERCEL_ENV !== "preview";
 
   let persisted = false;
-  if (databaseConfigured && options.persist !== false) {
+  if (databaseConfigured && shouldPersist) {
     persisted = await persistCompanyAnalysis({ company, enrichment, facts, events, signals, score });
   }
 
