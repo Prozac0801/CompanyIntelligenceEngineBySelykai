@@ -2,6 +2,7 @@ import type {
   CompanyEnrichment,
   CompanyProfile,
   ExplainableScore,
+  IntelligenceScoreId,
   ScoreFactor,
   ScoreSubscore,
 } from "@/types/company";
@@ -15,48 +16,18 @@ interface ScoreInput {
   enrichment: CompanyEnrichment;
 }
 
-const WEIGHTS: Record<ScoreSubscore["id"], number> = {
-  health: 0.25,
-  growth: 0.25,
-  digital: 0.2,
-  commercial: 0.3,
-};
-
 const EMPLOYEE_BAND_POINTS: Record<string, number> = {
-  "00": 0,
-  "01": 8,
-  "02": 12,
-  "03": 16,
-  "11": 22,
-  "12": 30,
-  "21": 40,
-  "22": 50,
-  "31": 60,
-  "32": 70,
-  "41": 80,
-  "42": 86,
-  "51": 92,
-  "52": 96,
-  "53": 100,
+  "00": 0, "01": 8, "02": 12, "03": 18, "11": 28, "12": 40,
+  "21": 55, "22": 66, "31": 74, "32": 82, "41": 88, "42": 92,
+  "51": 95, "52": 98, "53": 100,
 };
 
 function clamp(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function yearsSince(date?: string): number | null {
-  if (!date) return null;
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return (Date.now() - parsed.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-}
-
-function hasFact(facts: CompanyFact[], key: string): boolean {
-  return facts.some((fact) => fact.key === key && fact.value !== null);
-}
-
-function hasFinancials(value: unknown): boolean {
-  return Boolean(value && typeof value === "object" && Object.keys(value as object).length > 0);
+function factor(group: IntelligenceScoreId, label: string, impact: number, evidence: string): ScoreFactor {
+  return { group, label, impact: Math.round(impact), evidence };
 }
 
 function confidenceForEvidence(count: number, expected: number): "low" | "medium" | "high" {
@@ -66,219 +37,41 @@ function confidenceForEvidence(count: number, expected: number): "low" | "medium
   return "low";
 }
 
-function factor(
-  group: ScoreFactor["group"],
-  label: string,
-  impact: number,
-  evidence: string,
-): ScoreFactor {
-  return { group, label, impact: Math.round(impact), evidence };
-}
-
-function healthScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
-  const { company, facts } = input;
-  let value = 10;
-  let evidenceCount = 0;
-  const evidence: string[] = [];
-  const factors: ScoreFactor[] = [];
-
-  if (company.status === "active") {
-    value += 30;
-    evidenceCount += 1;
-    evidence.push("Entreprise administrativement active");
-    factors.push(factor("health", "Entreprise active", 8, "État administratif officiel : actif"));
-  }
-
-  const age = yearsSince(company.createdAt);
-  if (age !== null) {
-    evidenceCount += 1;
-    const points = age >= 5 ? 20 : age >= 2 ? 15 : 8;
-    value += points;
-    evidence.push(`Ancienneté observée : ${Math.max(0, Math.floor(age))} an(s)`);
-    factors.push(factor("health", "Continuité d’activité", points * WEIGHTS.health, `Création : ${company.createdAt}`));
-  }
-
-  if (company.executives.length > 0) {
-    value += 15;
-    evidenceCount += 1;
-    evidence.push(`${company.executives.length} dirigeant(s) public(s)`);
-    factors.push(factor("health", "Gouvernance identifiable", 4, `${company.executives.length} dirigeant(s) détecté(s)`));
-  }
-
-  if (hasFact(facts, "rne_siren")) {
-    value += 20;
-    evidenceCount += 1;
-    evidence.push("Identité recoupée avec le RNE");
-    factors.push(factor("health", "Recoupement RNE", 5, "SIREN confirmé par l’INPI / RNE"));
-  }
-
-  if (company.legalForm) {
-    value += 5;
-    evidenceCount += 1;
-    evidence.push("Forme juridique disponible");
-  }
-
-  if (hasFinancials(company.rawFinancials)) {
-    value += 5;
-    evidenceCount += 1;
-    evidence.push("Données financières publiques disponibles");
-    factors.push(factor("health", "Comptes publics disponibles", 1, "Au moins un exercice financier est exposé par la source officielle"));
-  }
-
+function latestFinancial(raw: unknown): { revenue?: number; netIncome?: number; margin?: number } {
+  if (!raw || typeof raw !== "object") return {};
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .filter(([, value]) => value && typeof value === "object")
+    .sort(([a], [b]) => b.localeCompare(a));
+  const data = entries[0]?.[1] as Record<string, unknown> | undefined;
+  if (!data) return {};
+  const revenue = Number(data.ca ?? data.chiffre_affaires);
+  const netIncome = Number(data.resultat_net ?? data.resultat);
   return {
-    subscore: {
-      id: "health",
-      label: "Company Health",
-      value: clamp(value),
-      weight: WEIGHTS.health,
-      confidence: confidenceForEvidence(evidenceCount, 6),
-      evidence,
-    },
-    factors,
+    revenue: Number.isFinite(revenue) ? revenue : undefined,
+    netIncome: Number.isFinite(netIncome) ? netIncome : undefined,
+    margin: Number.isFinite(revenue) && revenue !== 0 && Number.isFinite(netIncome) ? (netIncome / revenue) * 100 : undefined,
   };
 }
 
-function growthScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
-  const { company, events, signals, enrichment } = input;
+function fitScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
+  const { company } = input;
   const evidence: string[] = [];
   const factors: ScoreFactor[] = [];
-  const hasDynamicEvidence = events.length > 0 || signals.length > 0 || enrichment.news.length > 0;
+  let value = company.status === "active" ? 22 : 4;
 
-  if (!hasDynamicEvidence) {
-    return {
-      subscore: {
-        id: "growth",
-        label: "Growth Signals",
-        value: 50,
-        weight: WEIGHTS.growth,
-        confidence: "low",
-        evidence: ["Valeur neutre : pas encore assez d’historique ou de signaux récents pour conclure"],
-      },
-      factors,
-    };
-  }
-
-  let value = 35;
-  if (events.length) {
-    const eventPoints = Math.min(30, events.length * 10);
-    value += eventPoints;
-    evidence.push(`${events.length} changement(s) factuel(s) historisé(s)`);
-    factors.push(factor("growth", "Entreprise en mouvement", eventPoints * WEIGHTS.growth, `${events.length} événement(s) nouveaux depuis l’observation précédente`));
-  }
-
-  if (signals.length) {
-    const strongest = Math.max(...signals.map((signal) => signal.strength));
-    const points = Math.round(strongest * 0.2);
-    value += points;
-    evidence.push(`Signal dérivé le plus fort : ${strongest}/100`);
-    factors.push(factor("growth", "Signal de mouvement", points * WEIGHTS.growth, signals[0]?.reason || "Signal dérivé d’événements sourcés"));
-  }
-
-  if (enrichment.news.length) {
-    const points = Math.min(15, 5 + enrichment.news.length * 2);
-    value += points;
-    evidence.push(`${enrichment.news.length} actualité(s) récente(s) pertinente(s)`);
-    factors.push(factor("growth", "Visibilité récente", points * WEIGHTS.growth, `${enrichment.news.length} article(s) pertinent(s) détecté(s)`));
-  }
-
-  const age = yearsSince(company.createdAt);
-  if (age !== null && age <= 5) {
-    value += 8;
-    evidence.push("Structure créée depuis moins de 5 ans");
-  }
-
-  return {
-    subscore: {
-      id: "growth",
-      label: "Growth Signals",
-      value: clamp(value),
-      weight: WEIGHTS.growth,
-      confidence: confidenceForEvidence(evidence.length, 4),
-      evidence,
-    },
-    factors,
-  };
-}
-
-function digitalScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
-  const web = input.enrichment.web;
-  const evidence: string[] = [];
-  const factors: ScoreFactor[] = [];
-
-  if (!web?.domain && !web?.websiteUrl) {
-    return {
-      subscore: {
-        id: "digital",
-        label: "Digital Presence",
-        value: 50,
-        weight: WEIGHTS.digital,
-        confidence: "low",
-        evidence: ["Valeur neutre : présence web non résolue ou fournisseur indisponible"],
-      },
-      factors,
-    };
-  }
-
-  let value = 20;
-  if (web.domain) {
-    value += 25;
-    evidence.push(`Domaine identifié : ${web.domain}`);
-    factors.push(factor("digital", "Domaine officiel identifié", 5, web.domain));
-  }
-
-  if (web.serpPosition) {
-    const points = web.serpPosition <= 1 ? 25 : web.serpPosition <= 3 ? 20 : web.serpPosition <= 10 ? 12 : 5;
-    value += points;
-    evidence.push(`Position SERP observée : ${web.serpPosition}`);
-    factors.push(factor("digital", "Visibilité moteur de recherche", points * WEIGHTS.digital, `Résultat organique position ${web.serpPosition}`));
-  }
-
-  if (web.technologies.length) {
-    const points = Math.min(20, 8 + web.technologies.length);
-    value += points;
-    evidence.push(`${web.technologies.length} technologie(s) détectée(s)`);
-    factors.push(factor("digital", "Empreinte technologique", points * WEIGHTS.digital, web.technologies.slice(0, 5).join(" · ")));
-  }
-
-  if (web.description) {
-    value += 8;
-    evidence.push("Description d’activité web disponible");
-  }
-
-  // A social handle returned by a commercial enrichment provider is useful context,
-  // but is not trusted enough to influence scoring until it is independently recouped.
-
-  return {
-    subscore: {
-      id: "digital",
-      label: "Digital Presence",
-      value: clamp(value),
-      weight: WEIGHTS.digital,
-      confidence: confidenceForEvidence(evidence.length, 4),
-      evidence,
-    },
-    factors,
-  };
-}
-
-function commercialScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
-  const { company, enrichment } = input;
-  const evidence: string[] = [];
-  const factors: ScoreFactor[] = [];
-  let value = 15;
-
+  if (company.status === "active") evidence.push("Entreprise administrativement active");
   if (company.employer) {
-    value += 22;
+    value += 20;
     evidence.push("Employeur déclaré");
-    factors.push(factor("commercial", "Employeur identifié", 7, "Caractère employeur déclaré par la source officielle"));
+    factors.push(factor("fit", "Employeur actif", 20, "Caractère employeur issu de la source officielle"));
   }
 
-  const band = company.employeeBand ? EMPLOYEE_BAND_POINTS[company.employeeBand] : undefined;
-  if (typeof band === "number") {
-    const points = Math.round(band * 0.35);
+  const size = company.employeeBand ? EMPLOYEE_BAND_POINTS[company.employeeBand] : undefined;
+  if (typeof size === "number") {
+    const points = Math.round(size * 0.32);
     value += points;
-    evidence.push(`Tranche d’effectif INSEE : ${company.employeeBand}`);
-    factors.push(factor("commercial", "Taille exploitable", points * WEIGHTS.commercial, `Tranche d’effectif ${company.employeeBand}`));
+    evidence.push(`Tranche d’effectif ${company.employeeBand}`);
+    factors.push(factor("fit", "Taille de structure", points, `Tranche d’effectif officielle ${company.employeeBand}`));
   }
 
   const open = company.openEstablishmentCount || 0;
@@ -286,29 +79,181 @@ function commercialScore(input: ScoreInput): { subscore: ScoreSubscore; factors:
     const points = Math.min(22, 6 + Math.round(Math.log2(open) * 4));
     value += points;
     evidence.push(`${open} établissements ouverts`);
-    factors.push(factor("commercial", "Empreinte multi-sites", points * WEIGHTS.commercial, `${open} établissements ouverts`));
+    factors.push(factor("fit", "Empreinte multi-sites", points, `${open} établissements actuellement ouverts`));
   }
 
-  const contactSignals = (enrichment.web?.genericEmails.length || 0) + (enrichment.web?.phoneNumbers.length || 0);
-  if (contactSignals > 0) {
-    const points = Math.min(12, 4 + contactSignals * 2);
-    value += points;
-    evidence.push(`${contactSignals} point(s) de contact public(s)`);
-    factors.push(factor("commercial", "Contactabilité publique", points * WEIGHTS.commercial, `${contactSignals} email(s)/téléphone(s) générique(s) détecté(s)`));
-  }
-
-  if (enrichment.web?.domain) {
+  if (company.companyCategory) {
     value += 6;
-    evidence.push("Domaine exploitable pour enrichissement à la demande");
+    evidence.push(`Catégorie entreprise : ${company.companyCategory}`);
   }
 
   return {
     subscore: {
-      id: "commercial",
-      label: "Commercial Fit",
+      id: "fit",
+      label: "Prospect Fit",
       value: clamp(value),
-      weight: WEIGHTS.commercial,
-      confidence: confidenceForEvidence(evidence.length, 5),
+      weight: 0.4,
+      confidence: confidenceForEvidence(evidence.length, 4),
+      status: "scored",
+      evidence,
+    },
+    factors,
+  };
+}
+
+function momentumScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
+  const { events, signals, enrichment } = input;
+  const evidence: string[] = [];
+  const factors: ScoreFactor[] = [];
+  const now = Date.now();
+  const recentLegal = enrichment.legalEvents.filter((event) => {
+    const date = new Date(event.date).getTime();
+    return Number.isFinite(date) && now - date <= 180 * 24 * 60 * 60 * 1000;
+  });
+
+  const positiveLegal = recentLegal.filter((event) => event.risk === "positive" || event.risk === "neutral");
+  const dynamicCount = events.length + signals.length + positiveLegal.length + enrichment.news.length;
+  if (dynamicCount === 0) {
+    return {
+      subscore: {
+        id: "momentum",
+        label: "Momentum",
+        value: null,
+        weight: 0.25,
+        confidence: "low",
+        status: "insufficient-data",
+        evidence: ["Aucun déclencheur récent suffisamment documenté"],
+      },
+      factors,
+    };
+  }
+
+  let value = 25;
+  if (events.length) {
+    const points = Math.min(30, events.length * 10);
+    value += points;
+    evidence.push(`${events.length} changement(s) détecté(s) depuis une observation précédente`);
+    factors.push(factor("momentum", "Changements historisés", points, `${events.length} évolution(s) factuelle(s)`));
+  }
+  if (positiveLegal.length) {
+    const points = Math.min(28, positiveLegal.length * 8);
+    value += points;
+    evidence.push(`${positiveLegal.length} événement(s) BODACC récent(s)`);
+    factors.push(factor("momentum", "Activité juridique récente", points, positiveLegal.slice(0, 2).map((event) => event.family).join(" · ")));
+  }
+  if (enrichment.news.length) {
+    const points = Math.min(15, 5 + enrichment.news.length * 2);
+    value += points;
+    evidence.push(`${enrichment.news.length} actualité(s) pertinente(s)`);
+  }
+  if (signals.length) {
+    const strongest = Math.max(...signals.map((signal) => signal.strength));
+    value += Math.round(strongest * 0.18);
+    evidence.push(`Signal dérivé maximal : ${strongest}/100`);
+  }
+
+  return {
+    subscore: {
+      id: "momentum",
+      label: "Momentum",
+      value: clamp(value),
+      weight: 0.25,
+      confidence: confidenceForEvidence(evidence.length, 4),
+      status: "scored",
+      evidence,
+    },
+    factors,
+  };
+}
+
+function accessScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
+  const web = input.enrichment.web;
+  const evidence: string[] = [];
+  const factors: ScoreFactor[] = [];
+  let value = 10;
+
+  if (web?.domain) {
+    value += 25;
+    evidence.push(`Domaine identifié : ${web.domain}`);
+    factors.push(factor("access", "Domaine résolu", 25, web.domain));
+  }
+  if (web?.genericEmails.length) {
+    const points = Math.min(22, 10 + web.genericEmails.length * 4);
+    value += points;
+    evidence.push(`${web.genericEmails.length} email(s) générique(s)`);
+    factors.push(factor("access", "Emails publics", points, `${web.genericEmails.length} adresse(s) générique(s) détectée(s)`));
+  }
+  if (web?.phoneNumbers.length) {
+    const points = Math.min(18, 8 + web.phoneNumbers.length * 3);
+    value += points;
+    evidence.push(`${web.phoneNumbers.length} téléphone(s) public(s)`);
+  }
+  if (input.company.executives.length) {
+    const points = Math.min(18, 6 + input.company.executives.length * 3);
+    value += points;
+    evidence.push(`${input.company.executives.length} dirigeant(s) public(s)`);
+    factors.push(factor("access", "Gouvernance identifiable", points, `${input.company.executives.length} mandataire(s) public(s)`));
+  }
+  if (web?.serpPosition) {
+    value += web.serpPosition <= 3 ? 10 : 5;
+    evidence.push(`Site retrouvé dans les résultats de recherche (#${web.serpPosition})`);
+  }
+
+  return {
+    subscore: {
+      id: "access",
+      label: "Commercial Access",
+      value: clamp(value),
+      weight: 0.2,
+      confidence: confidenceForEvidence(evidence.length, 4),
+      status: "scored",
+      evidence,
+    },
+    factors,
+  };
+}
+
+function riskScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
+  const evidence: string[] = [];
+  const factors: ScoreFactor[] = [];
+  const financial = latestFinancial(input.company.rawFinancials);
+  let value = input.company.status === "closed" ? 70 : 8;
+
+  const critical = input.enrichment.legalEvents.filter((event) => event.risk === "critical");
+  const warnings = input.enrichment.legalEvents.filter((event) => event.risk === "warning");
+  if (critical.length) {
+    const points = Math.min(70, 45 + critical.length * 10);
+    value += points;
+    evidence.push(`${critical.length} événement(s) juridique(s) critique(s) BODACC`);
+    factors.push(factor("risk", "Procédure juridique critique", points, critical[0]?.family || "BODACC"));
+  }
+  if (warnings.length) {
+    const points = Math.min(30, warnings.length * 12);
+    value += points;
+    evidence.push(`${warnings.length} événement(s) BODACC à surveiller`);
+  }
+  if (typeof financial.netIncome === "number" && financial.netIncome < 0) {
+    value += 30;
+    evidence.push("Résultat net négatif sur le dernier exercice disponible");
+    factors.push(factor("risk", "Résultat net négatif", 30, "Dernier exercice public disponible"));
+  } else if (typeof financial.margin === "number" && financial.margin < 1) {
+    value += 22;
+    evidence.push(`Marge nette faible : ${financial.margin.toFixed(2)} %`);
+    factors.push(factor("risk", "Marge nette faible", 22, `${financial.margin.toFixed(2)} % sur le dernier exercice disponible`));
+  } else if (typeof financial.margin === "number" && financial.margin < 3) {
+    value += 10;
+    evidence.push(`Marge nette modérée : ${financial.margin.toFixed(2)} %`);
+  }
+
+  if (!evidence.length) evidence.push("Aucun signal de risque fort détecté dans les sources actuellement couvertes");
+  return {
+    subscore: {
+      id: "risk",
+      label: "Risk Exposure",
+      value: clamp(value),
+      weight: 0.15,
+      confidence: confidenceForEvidence(input.enrichment.legalEvents.length + (financial.revenue ? 1 : 0), 3),
+      status: "scored",
       evidence,
     },
     factors,
@@ -316,47 +261,75 @@ function commercialScore(input: ScoreInput): { subscore: ScoreSubscore; factors:
 }
 
 export function computeOpportunityScore(input: ScoreInput): ExplainableScore {
-  const components = [
-    healthScore(input),
-    growthScore(input),
-    digitalScore(input),
-    commercialScore(input),
-  ];
-  const subscores = components.map((item) => item.subscore);
-  const factors = components.flatMap((item) => item.factors).sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
-  const value = clamp(
-    subscores.reduce((total, subscore) => total + subscore.value * subscore.weight, 0),
-  );
+  const fit = fitScore(input);
+  const momentum = momentumScore(input);
+  const access = accessScore(input);
+  const risk = riskScore(input);
 
   const families = [
     ["Données légales", input.company.evidence.length > 0],
-    ["RNE", hasFact(input.facts, "rne_siren")],
+    ["RNE", input.facts.some((fact) => fact.key === "rne_siren" && fact.value !== null)],
+    ["BODACC", input.enrichment.evidence.some((item) => item.providerId === "bodacc")],
     ["Web / SERP", Boolean(input.enrichment.web?.domain || input.enrichment.web?.websiteUrl)],
-    ["Firmographie web", Boolean(input.enrichment.web?.industry || input.enrichment.web?.technologies.length)],
+    ["Firmographie web", Boolean(input.enrichment.web?.technologies.length || input.enrichment.web?.industry)],
     ["Actualités", input.enrichment.news.length > 0],
-    ["Historique", input.events.length > 0 || input.signals.length > 0],
+    ["Historique interne", input.events.length > 0 || input.signals.length > 0],
   ] as const;
   const present = families.filter(([, available]) => available).map(([label]) => label);
   const missing = families.filter(([, available]) => !available).map(([label]) => label);
   const coveragePercent = Math.round((present.length / families.length) * 100);
-  const confidence: ExplainableScore["confidence"] =
-    coveragePercent >= 80 ? "high" : coveragePercent >= 50 ? "medium" : "low";
+  const confidenceValue = coveragePercent;
+  const confidenceLevel: ExplainableScore["confidence"] = coveragePercent >= 80 ? "high" : coveragePercent >= 50 ? "medium" : "low";
+  const confidenceSubscore: ScoreSubscore = {
+    id: "confidence",
+    label: "Data Confidence",
+    value: confidenceValue,
+    weight: 0,
+    confidence: confidenceLevel,
+    status: "scored",
+    evidence: [`${present.length}/${families.length} familles de preuves disponibles`, ...present],
+  };
+
+  const momentumValue = momentum.subscore.value;
+  const fitValue = fit.subscore.value || 0;
+  const accessValue = access.subscore.value || 0;
+  const riskValue = risk.subscore.value || 0;
+  const legacyPriority = clamp(
+    fitValue * 0.48 + accessValue * 0.24 + (100 - riskValue) * 0.18 + (momentumValue ?? 50) * 0.1,
+  );
+
+  let opportunity: ExplainableScore["opportunity"];
+  if (momentumValue === null) {
+    opportunity = fitValue >= 65
+      ? { status: "watch", reason: "Bon profil structurel, mais aucun déclencheur récent suffisamment documenté." }
+      : { status: "not-determined", reason: "Pas assez de signaux pour recommander une action commerciale immédiate." };
+  } else if (fitValue >= 60 && momentumValue >= 50 && riskValue < 70) {
+    opportunity = {
+      status: "triggered",
+      value: clamp(fitValue * 0.5 + momentumValue * 0.3 + accessValue * 0.2 - riskValue * 0.15),
+      reason: "Profil commercial intéressant avec activité récente suffisamment documentée.",
+    };
+  } else {
+    opportunity = { status: "watch", reason: "Des signaux existent, mais ils ne justifient pas encore une priorité commerciale forte." };
+  }
 
   return {
-    value,
-    confidence,
-    label: value >= 75 ? "Opportunité forte à qualifier" : value >= 60 ? "Potentiel intéressant" : value >= 45 ? "Signal à approfondir" : "Peu de signaux exploitables",
-    factors,
-    subscores,
+    value: legacyPriority,
+    confidence: confidenceLevel,
+    label: opportunity.status === "triggered" ? "Déclencheur commercial détecté" : opportunity.status === "watch" ? "Prospect à surveiller" : "Opportunité non déterminée",
+    opportunity,
+    factors: [...fit.factors, ...momentum.factors, ...access.factors, ...risk.factors]
+      .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact)),
+    subscores: [fit.subscore, momentum.subscore, access.subscore, risk.subscore, confidenceSubscore],
     basis: {
       mode: "absolute-evidence",
-      description: "Score composite pondéré de signaux observables. Ce n’est pas un percentile : 75/100 ne signifie pas que l’entreprise dépasse 75 % des sociétés françaises.",
+      description: "La V0.4 sépare attractivité, momentum, accessibilité, risque et qualité des données. Un score absent signifie données insuffisantes, pas une note moyenne.",
       coveragePercent,
       evidenceFamilies: present,
       missingFamilies: missing,
       benchmarkStatus: "not-enough-data",
-      benchmarkDescription: "Benchmark sectoriel non affiché tant qu’un échantillon comparable suffisant n’est pas historisé dans le moteur.",
+      benchmarkDescription: "Benchmark sectoriel affiché uniquement lorsqu’un échantillon comparable suffisant est disponible.",
     },
-    version: "opportunity-v0.2.1-composite",
+    version: "intelligence-v0.4",
   };
 }
