@@ -1,3 +1,4 @@
+import { providerStatusFromHttp, recordProviderRun } from "@/lib/providers/observability";
 import type {
   CompanyEstablishment,
   CompanyExecutive,
@@ -8,7 +9,7 @@ import type {
 
 const API_BASE = "https://recherche-entreprises.api.gouv.fr";
 const USER_AGENT =
-  "CompanyIntelligenceEngineBySelykai/0.1 (+https://github.com/Prozac0801/CompanyIntelligenceEngineBySelykai)";
+  "CompanyIntelligenceEngineBySelykai/0.2 (+https://github.com/Prozac0801/CompanyIntelligenceEngineBySelykai)";
 
 interface RawHeadOffice {
   siret?: string;
@@ -150,13 +151,38 @@ function normalizeEstablishments(raw: RawCompany): CompanyEstablishment[] {
     }));
 }
 
-async function request(params: URLSearchParams, revalidate: number): Promise<RawSearchResponse> {
-  const response = await fetch(`${API_BASE}/search?${params.toString()}`, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": USER_AGENT,
-    },
-    next: { revalidate },
+async function request(
+  params: URLSearchParams,
+  revalidate: number,
+  operation: "search" | "company_lookup",
+): Promise<RawSearchResponse> {
+  const startedAt = Date.now();
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE}/search?${params.toString()}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": USER_AGENT,
+      },
+      next: { revalidate },
+    });
+  } catch (error) {
+    await recordProviderRun({
+      providerId: "recherche-entreprises",
+      operation,
+      status: "network_error",
+      latencyMs: Date.now() - startedAt,
+    });
+    throw error;
+  }
+
+  await recordProviderRun({
+    providerId: "recherche-entreprises",
+    operation,
+    status: providerStatusFromHttp(response.status),
+    httpStatus: response.status,
+    latencyMs: Date.now() - startedAt,
   });
 
   if (response.status === 429) {
@@ -181,7 +207,7 @@ export async function searchCompanies(query: string, page = 1): Promise<CompanyS
     per_page: "8",
     limite_matching_etablissements: "3",
   });
-  const data = await request(params, 600);
+  const data = await request(params, 600, "search");
 
   return {
     results: (data.results || []).map(normalizeCompany).filter((item): item is CompanySummary => Boolean(item)),
@@ -200,7 +226,7 @@ export async function getCompanyBySiren(siren: string): Promise<CompanyProfile |
     per_page: "1",
     limite_matching_etablissements: "12",
   });
-  const data = await request(params, 3600);
+  const data = await request(params, 3600, "company_lookup");
   const raw = data.results?.[0];
   if (!raw) return null;
   const summary = normalizeCompany(raw);
