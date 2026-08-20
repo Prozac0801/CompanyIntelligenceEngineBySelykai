@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
 import { checkDatabase } from "@/lib/db";
 import { authConfigurationHealth } from "@/lib/auth/server";
-import { isInpiRneConfigured } from "@/lib/providers";
-import { LIVE_PROVIDERS } from "@/lib/providers/catalog";
+import { getProviderCatalog } from "@/lib/providers/catalog";
 
 export async function GET() {
   const database = await checkDatabase();
   const auth = authConfigurationHealth();
+  const providers = getProviderCatalog();
   const healthy = !database.configured || (database.reachable && database.schemaReady);
-  const configuredSources = [
-    ...LIVE_PROVIDERS.map((provider) => provider.id),
-    ...(isInpiRneConfigured() ? ["inpi-rne"] : []),
-  ];
+  const configuredSources = providers
+    .filter((provider) => provider.status !== "next")
+    .map((provider) => provider.id);
 
   return NextResponse.json(
     {
@@ -25,6 +24,7 @@ export async function GET() {
         protectedSurface: "/workspace",
       },
       configuredSources,
+      providerPipeline: providers.map(({ id, status }) => ({ id, status })),
       timestamp: new Date().toISOString(),
     },
     {
