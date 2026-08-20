@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkDatabase } from "@/lib/db";
 import { authConfigurationHealth } from "@/lib/auth/server";
+import { ENGINE_VERSION } from "@/lib/intelligence/company-engine";
 import { getProviderCatalog } from "@/lib/providers/catalog";
 
 export async function GET() {
@@ -16,7 +17,7 @@ export async function GET() {
     {
       status: healthy ? "ok" : "degraded",
       service: "Selykai Company Intelligence Engine",
-      version: "0.3.0",
+      version: ENGINE_VERSION,
       database,
       auth: {
         provider: "neon-auth",
