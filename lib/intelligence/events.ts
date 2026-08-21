@@ -11,6 +11,31 @@ function changed(previous: Map<string, CompanyFact>, current: Map<string, Compan
   return { before, after };
 }
 
+function stringList(value: CompanyFact["value"]): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function numberValue(value: CompanyFact["value"]): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value.replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function listDelta(before: string[], after: string[]): { added: string[]; removed: string[] } {
+  const previous = new Set(before);
+  const current = new Set(after);
+  return {
+    added: after.filter((value) => !previous.has(value)),
+    removed: before.filter((value) => !current.has(value)),
+  };
+}
+
+function formatAmount(value: number | undefined): string {
+  if (value === undefined) return "—";
+  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value);
+}
+
 export function detectCompanyEvents(
   previous: Map<string, CompanyFact>,
   current: Map<string, CompanyFact>,
@@ -56,8 +81,40 @@ export function detectCompanyEvents(
     });
   }
 
+  const activeEstablishments = changed(previous, current, "active_establishment_sirets");
+  let preciseEstablishmentChange = false;
+  if (activeEstablishments) {
+    const delta = listDelta(
+      stringList(activeEstablishments.before.value),
+      stringList(activeEstablishments.after.value),
+    );
+    if (delta.added.length) {
+      preciseEstablishmentChange = true;
+      events.push({
+        type: "ESTABLISHMENT_OPENING",
+        title: delta.added.length === 1 ? "Nouvel établissement ouvert" : "Nouveaux établissements ouverts",
+        description: `${delta.added.length} nouveau(x) SIRET actif(s) : ${delta.added.slice(0, 8).join(", ")}`,
+        observedAt: now,
+        confidence: activeEstablishments.after.evidence.confidence,
+        evidenceKeys: ["active_establishment_sirets", "open_establishment_count"],
+      });
+    }
+    if (delta.removed.length) {
+      preciseEstablishmentChange = true;
+      events.push({
+        type: "ESTABLISHMENT_CLOSURE",
+        title: delta.removed.length === 1 ? "Fermeture d’établissement détectée" : "Fermetures d’établissements détectées",
+        description: `${delta.removed.length} SIRET(s) ne figurent plus parmi les établissements actifs : ${delta.removed.slice(0, 8).join(", ")}`,
+        observedAt: now,
+        confidence: activeEstablishments.after.evidence.confidence,
+        evidenceKeys: ["active_establishment_sirets", "open_establishment_count"],
+      });
+    }
+  }
+
   const establishments = changed(previous, current, "open_establishment_count");
   if (
+    !preciseEstablishmentChange &&
     establishments &&
     typeof establishments.before.value === "number" &&
     typeof establishments.after.value === "number" &&
@@ -96,6 +153,60 @@ export function detectCompanyEvents(
       confidence: bodacc.after.evidence.confidence,
       evidenceKeys: ["bodacc_latest_event_id", "bodacc_latest_family"],
     });
+  }
+
+  const procurement = changed(previous, current, "boamp_latest_award_id");
+  if (procurement && procurement.after.value) {
+    const date = current.get("boamp_latest_award_date")?.value;
+    events.push({
+      type: "PUBLIC_CONTRACT_AWARD",
+      title: "Nouvelle attribution BOAMP détectée",
+      description: date ? `Une nouvelle attribution de marché public a été observée (${String(date)}).` : "Une nouvelle attribution de marché public a été observée.",
+      observedAt: now,
+      confidence: procurement.after.evidence.confidence,
+      evidenceKeys: ["boamp_latest_award_id", "boamp_latest_award_date"],
+    });
+  }
+
+  const hiringDetected = changed(previous, current, "hiring_detected");
+  const hiringCount = changed(previous, current, "hiring_opening_count");
+  const hiringActivated = hiringDetected?.before.value === false && hiringDetected.after.value === true;
+  const beforeHiringCount = hiringCount ? numberValue(hiringCount.before.value) : undefined;
+  const afterHiringCount = hiringCount ? numberValue(hiringCount.after.value) : undefined;
+  const hiringGrowth = beforeHiringCount !== undefined && afterHiringCount !== undefined && afterHiringCount > beforeHiringCount;
+  if (hiringActivated || hiringGrowth) {
+    const after = hiringDetected?.after || hiringCount?.after;
+    if (after) {
+      events.push({
+        type: "HIRING_ACTIVITY_CHANGE",
+        title: hiringActivated ? "Recrutement actif détecté" : "Hausse des recrutements visibles",
+        description: hiringGrowth
+          ? `${beforeHiringCount} → ${afterHiringCount} ouverture(s) détectée(s) sur la surface carrière officielle.`
+          : "La surface carrière officielle présente désormais des recrutements actifs.",
+        observedAt: now,
+        confidence: after.evidence.confidence,
+        evidenceKeys: ["hiring_detected", "hiring_opening_count", "hiring_job_titles"],
+      });
+    }
+  }
+
+  const latestYear = changed(previous, current, "financial_latest_year");
+  const revenue = changed(previous, current, "financial_revenue");
+  if ((latestYear || revenue) && current.get("financial_revenue")) {
+    const beforeRevenue = revenue ? numberValue(revenue.before.value) : numberValue(previous.get("financial_revenue")?.value ?? null);
+    const afterRevenue = numberValue(current.get("financial_revenue")?.value ?? null);
+    const growth = numberValue(current.get("financial_revenue_growth_percent")?.value ?? null);
+    const after = revenue?.after || latestYear?.after || current.get("financial_revenue");
+    if (after) {
+      events.push({
+        type: "FINANCIAL_CHANGE",
+        title: "Nouvel exercice financier observé",
+        description: `Chiffre d’affaires : ${formatAmount(beforeRevenue)} → ${formatAmount(afterRevenue)}${growth !== undefined ? ` · variation ${growth >= 0 ? "+" : ""}${growth.toFixed(1)} %` : ""}`,
+        observedAt: now,
+        confidence: after.evidence.confidence,
+        evidenceKeys: ["financial_latest_year", "financial_revenue", "financial_revenue_growth_percent"],
+      });
+    }
   }
 
   return events;
