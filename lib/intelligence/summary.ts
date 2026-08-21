@@ -1,4 +1,5 @@
 import type {
+  CompanyBusinessTrigger,
   CompanyEnrichment,
   CompanyFinancialInsight,
   CompanyIntelligenceSummary,
@@ -9,7 +10,6 @@ import type { CompanySignal } from "@/types/intelligence";
 import { activityLabel, employeeBandLabel } from "./labels";
 import {
   hasRecentCriticalLegalEvent,
-  isCommercialMomentumLegalEvent,
   isRecentLegalEvent,
 } from "./legal-events";
 
@@ -77,26 +77,61 @@ export function financialInsight(raw: unknown): CompanyFinancialInsight {
   };
 }
 
+function triggerSummary(trigger: CompanyBusinessTrigger): string {
+  const date = trigger.occurredAt ? new Date(trigger.occurredAt) : null;
+  const dateLabel = date && Number.isFinite(date.getTime()) ? date.toLocaleDateString("fr-FR") : undefined;
+  return [trigger.label, dateLabel].filter(Boolean).join(" · ");
+}
+
+function triggeredAction(trigger?: CompanyBusinessTrigger): string {
+  if (!trigger) return "Qualifier l’opportunité en priorité et vérifier la preuve déclenchante avant toute action commerciale.";
+  if (trigger.type === "PUBLIC_CONTRACT_AWARD") {
+    return "Qualifier le marché public attribué, son périmètre et ses besoins induits avant de décider d’une action commerciale.";
+  }
+  if (trigger.type === "HIRING") {
+    return "Qualifier la dynamique de recrutement et les besoins opérationnels qu’elle peut révéler avant de prioriser une action.";
+  }
+  if (trigger.type === "ESTABLISHMENT_OPENING") {
+    return "Qualifier l’expansion géographique, les nouveaux sites et les besoins associés avant de prioriser une action.";
+  }
+  if (trigger.type === "FINANCIAL_GROWTH") {
+    return "Qualifier la croissance observée et vérifier si elle s’accompagne d’investissements ou de nouveaux projets.";
+  }
+  if (trigger.type === "LEGAL_CHANGE") {
+    return "Examiner le changement juridique récent et confirmer son impact opérationnel avant de prioriser l’opportunité.";
+  }
+  return "Qualifier le déclencheur récent et son impact opérationnel avant de prioriser une action commerciale.";
+}
+
 export function buildCompanyIntelligenceSummary(input: {
   company: CompanyProfile;
   enrichment: CompanyEnrichment;
   score: ExplainableScore;
   signals: CompanySignal[];
+  businessTriggers?: CompanyBusinessTrigger[];
 }): CompanyIntelligenceSummary {
   const { company, enrichment, score, signals } = input;
+  const businessTriggers = input.businessTriggers || [];
   const financial = financialInsight(company.rawFinancials);
   const strengths: string[] = [];
   const vigilance: string[] = [];
-  const triggers: string[] = [];
+  const triggerLabels: string[] = [];
   const activity = activityLabel(company.nafCode, company.activityLabel);
   const size = employeeBandLabel(company.employeeBand);
   const open = company.openEstablishmentCount || 0;
+  const positiveTriggers = businessTriggers
+    .filter((trigger) => trigger.direction !== "negative")
+    .sort((a, b) => b.strength * b.confidence - a.strength * a.confidence);
+  const negativeTriggers = businessTriggers.filter((trigger) => trigger.direction === "negative");
+  const topTrigger = positiveTriggers[0];
 
   if (company.status === "active") strengths.push("Entreprise administrativement active");
   if (size) strengths.push(`Structure ${size.toLocaleLowerCase("fr-FR")}`);
   if (open > 1) strengths.push(`Empreinte multi-sites : ${open} établissements ouverts`);
   if (enrichment.web?.domainVerified && enrichment.web.domain) strengths.push(`Présence digitale recoupée sur ${enrichment.web.domain}`);
-  if (enrichment.web?.domainVerified && enrichment.web.technologies.length) strengths.push(`${enrichment.web.technologies.length} technologies web détectées sur le domaine recoupé`);
+  if (topTrigger?.type === "PUBLIC_CONTRACT_AWARD") strengths.push("Activité marchés publics récente documentée");
+  else if (topTrigger?.type === "HIRING") strengths.push("Recrutement actif détecté sur la surface officielle");
+  else if (topTrigger?.type === "ESTABLISHMENT_OPENING") strengths.push("Expansion géographique récente détectée");
 
   if (company.status === "closed") vigilance.push("Entreprise administrativement fermée");
   vigilance.push(...financial.notes.filter((note) => /faible|négatif|modérée/i.test(note)));
@@ -108,14 +143,15 @@ export function buildCompanyIntelligenceSummary(input: {
   );
   if (legalCritical.length) vigilance.push(`${legalCritical.length} procédure(s) BODACC critique(s) récente(s) à examiner avant toute action`);
   if (legalWarning.length) vigilance.push(`${legalWarning.length} événement(s) juridique(s) récent(s) à surveiller`);
+  for (const trigger of negativeTriggers.slice(0, 2)) vigilance.push(trigger.label);
   if (!vigilance.length) vigilance.push("Aucun signal de vigilance majeur détecté dans les sources couvertes");
 
-  const legalTriggers = enrichment.legalEvents.filter((event) => isCommercialMomentumLegalEvent(event));
-  for (const event of legalTriggers.slice(0, 3)) {
-    triggers.push(`${event.family} · ${new Date(event.date).toLocaleDateString("fr-FR")}`);
+  for (const trigger of positiveTriggers.slice(0, 5)) triggerLabels.push(triggerSummary(trigger));
+  if (!triggerLabels.length) {
+    for (const signal of signals.filter((signal) => !["LEGAL_RISK", "CONTRACTION"].includes(signal.type)).slice(0, 2)) {
+      triggerLabels.push(signal.label);
+    }
   }
-  for (const signal of signals.filter((signal) => signal.type !== "LEGAL_RISK").slice(0, 2)) triggers.push(signal.label);
-  if (enrichment.news.length) triggers.push(`${enrichment.news.length} actualité(s) pertinente(s) récente(s)`);
 
   const headlineParts = [activity, size, open > 1 ? `${open} établissements actifs` : undefined].filter(Boolean);
   const headline = headlineParts.length
@@ -128,16 +164,16 @@ export function buildCompanyIntelligenceSummary(input: {
     : company.status === "closed"
       ? "Ne pas prioriser commercialement cette entité tant que son statut administratif reste fermé."
       : score.opportunity.status === "triggered"
-        ? "Prioriser une qualification commerciale maintenant et vérifier le déclencheur avant prise de contact."
+        ? triggeredAction(topTrigger)
         : score.opportunity.status === "watch"
-          ? "Placer l’entreprise sous surveillance et déclencher une action sur nouvel établissement, recrutement, modification BODACC pertinente ou actualité forte."
+          ? "Maintenir l’entreprise sous surveillance et réévaluer la priorité à l’apparition d’un marché gagné, recrutement, nouvel établissement, évolution financière ou événement juridique significatif."
           : "Compléter les données temporelles avant de prioriser une action commerciale.";
 
   return {
     headline,
-    strengths: strengths.slice(0, 4),
-    vigilance: vigilance.slice(0, 4),
-    triggers: triggers.slice(0, 5),
+    strengths: Array.from(new Set(strengths)).slice(0, 4),
+    vigilance: Array.from(new Set(vigilance)).slice(0, 4),
+    triggers: Array.from(new Set(triggerLabels)).slice(0, 5),
     nextBestAction,
     financial,
   };

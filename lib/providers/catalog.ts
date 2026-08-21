@@ -24,7 +24,7 @@ export function getProviderCatalog(): readonly ProviderCatalogItem[] {
     {
       id: "inpi-rne",
       name: "INPI / RNE",
-      role: "RNE · identité · actes",
+      role: "RNE · identité · actes · établissements détaillés",
       kind: "official",
       status: isInpiRneConfigured() ? "live" : "next",
     },
@@ -32,6 +32,13 @@ export function getProviderCatalog(): readonly ProviderCatalogItem[] {
       id: "bodacc",
       name: "BODACC / DILA",
       role: "Créations · modifications · radiations · procédures · comptes",
+      kind: "official",
+      status: "live",
+    },
+    {
+      id: "boamp",
+      name: "BOAMP / DILA",
+      role: "Attributions de marchés publics · activité commerciale",
       kind: "official",
       status: "live",
     },

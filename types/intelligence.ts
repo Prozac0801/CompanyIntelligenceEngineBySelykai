@@ -1,4 +1,5 @@
 import type {
+  CompanyBusinessTrigger,
   CompanyEnrichment,
   CompanyIntelligenceSummary,
   ExplainableScore,
@@ -31,8 +32,13 @@ export interface CompanyEvent {
     | "ACTIVITY_CHANGE"
     | "EMPLOYER_STATUS_CHANGE"
     | "ESTABLISHMENT_GROWTH"
+    | "ESTABLISHMENT_OPENING"
+    | "ESTABLISHMENT_CLOSURE"
     | "GOVERNANCE_CHANGE"
-    | "BODACC_ACTIVITY";
+    | "BODACC_ACTIVITY"
+    | "HIRING_ACTIVITY_CHANGE"
+    | "PUBLIC_CONTRACT_AWARD"
+    | "FINANCIAL_CHANGE";
   title: string;
   description: string;
   observedAt: string;
@@ -41,7 +47,7 @@ export interface CompanyEvent {
 }
 
 export interface CompanySignal {
-  type: "EXPANSION" | "CHANGE" | "LEGAL_RISK";
+  type: "EXPANSION" | "CHANGE" | "LEGAL_RISK" | "HIRING" | "PROCUREMENT" | "CONTRACTION";
   label: string;
   strength: number;
   reason: string;
@@ -61,6 +67,7 @@ export interface CompanyAnalysisResult<TCompany> {
   facts: CompanyFact[];
   events: CompanyEvent[];
   signals: CompanySignal[];
+  triggers: CompanyBusinessTrigger[];
   score: ExplainableScore;
   summary: CompanyIntelligenceSummary;
   meta: CompanyAnalysisMeta;

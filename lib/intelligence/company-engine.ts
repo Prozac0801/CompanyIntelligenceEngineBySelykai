@@ -6,6 +6,7 @@ import {
   isInpiRneConfigured,
 } from "@/lib/providers";
 import { computeOpportunityScore } from "@/lib/scoring/opportunity";
+import { buildBusinessTriggers } from "@/lib/intelligence/business-triggers";
 import { detectCompanyEvents } from "@/lib/intelligence/events";
 import { factMap, factsFromCompany } from "@/lib/intelligence/facts";
 import { enrichCompany, factsFromEnrichment } from "@/lib/intelligence/enrichment";
@@ -17,7 +18,7 @@ import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 import type { CompanyEstablishment, CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
 
-export const ENGINE_VERSION = "0.4.1";
+export const ENGINE_VERSION = "0.5.0";
 
 interface RneSupplement {
   facts: CompanyFact[];
@@ -100,11 +101,12 @@ export async function analyzeCompany(
     ...rne.facts,
     ...factsFromEnrichment(enrichment),
   ];
+  const triggers = buildBusinessTriggers({ company, enrichment, facts });
   const databaseConfigured = hasDatabase();
   const previousFacts = databaseConfigured ? await loadLatestFacts(siren) : new Map();
   const events = detectCompanyEvents(previousFacts, factMap(facts));
   const signals = inferSignals(events);
-  const score = computeOpportunityScore({ company, facts, events, signals, enrichment });
+  const score = computeOpportunityScore({ company, facts, events, signals, enrichment, triggers });
 
   if (databaseConfigured) {
     const benchmark = await loadOpportunityBenchmark({
@@ -121,7 +123,13 @@ export async function analyzeCompany(
     }
   }
 
-  const summary = buildCompanyIntelligenceSummary({ company, enrichment, score, signals });
+  const summary = buildCompanyIntelligenceSummary({
+    company,
+    enrichment,
+    score,
+    signals,
+    businessTriggers: triggers,
+  });
   const shouldPersist = options.persist ?? canWriteRuntimeState();
 
   let persisted = false;
@@ -135,6 +143,7 @@ export async function analyzeCompany(
     facts,
     events,
     signals,
+    triggers,
     score,
     summary,
     meta: {

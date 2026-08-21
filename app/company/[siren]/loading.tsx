@@ -3,10 +3,11 @@ import { AppShell } from "@/components/app-shell";
 
 const steps = [
   ["Registre officiel", "Identité · SIREN · établissements", "official"],
-  ["INPI / RNE", "Recoupement juridique et faits RNE", "official"],
+  ["INPI / RNE", "Recoupement juridique et implantations", "official"],
   ["BODACC / DILA", "Annonces · modifications · procédures · comptes", "legal"],
-  ["Hunter", "Domaine · firmographie · technologies", "web"],
-  ["APILayer", "SERP · actualités lorsque disponibles", "web"],
+  ["BOAMP / DILA", "Marchés publics attribués · activité commerciale", "official"],
+  ["Web officiel", "Domaine · recrutements · surface carrière", "web"],
+  ["Hunter", "Firmographie · technologies sur domaine recoupé", "web"],
   ["Selykai Engine", "Fit · Momentum · Access · Risk · Confidence", "engine"],
 ] as const;
 
@@ -25,9 +26,9 @@ export default function CompanyLoading() {
             <span className="analysis-node node-c" />
           </div>
           <div>
-            <p className="context-line"><Sparkles size={14} /> COMPANY INTELLIGENCE ENGINE V0.4</p>
-            <h1>Construction de l’analyse décisionnelle</h1>
-            <p className="lead">Le moteur recoupe les registres officiels, les événements juridiques et la présence web avant de séparer attractivité, momentum, accessibilité, risque et confiance.</p>
+            <p className="context-line"><Sparkles size={14} /> COMPANY INTELLIGENCE ENGINE V0.5</p>
+            <h1>Détection des déclencheurs business</h1>
+            <p className="lead">Le moteur recoupe identité, événements juridiques, marchés publics, recrutements, implantations, finance et présence web avant de calculer Fit, Momentum, Access, Risk et confiance.</p>
           </div>
         </div>
 

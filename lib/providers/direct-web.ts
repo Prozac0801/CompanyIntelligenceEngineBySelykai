@@ -15,6 +15,16 @@ interface CachedWebsiteVerification {
   checkedAt: string;
 }
 
+export interface FirstPartyPage {
+  html: string;
+  url: string;
+}
+
+export interface FirstPartyLink {
+  href: string;
+  text: string;
+}
+
 function normalizeText(value: string): string {
   return value
     .normalize("NFD")
@@ -82,7 +92,7 @@ export function isSafeWebsiteHostname(hostname: string): boolean {
   return /^[a-z0-9.-]+$/.test(normalized);
 }
 
-function cleanDomain(value?: string): string | undefined {
+export function cleanFirstPartyDomain(value?: string): string | undefined {
   if (!value) return undefined;
   try {
     const url = value.includes("://") ? new URL(value) : new URL(`https://${value}`);
@@ -129,12 +139,16 @@ async function readLimitedText(response: Response): Promise<string> {
   return output;
 }
 
-function htmlVisibleText(html: string): string {
+export function htmlVisibleText(html: string): string {
   return html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -157,8 +171,37 @@ function htmlDescription(html: string): string | undefined {
   return undefined;
 }
 
-async function fetchFirstPartyPage(domain: string): Promise<{ html: string; url: string } | null> {
-  let current = new URL(`https://${domain}/`);
+export function extractHtmlLinks(html: string, baseUrl: string): FirstPartyLink[] {
+  const links: FirstPartyLink[] = [];
+  const regex = /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) !== null && links.length < 250) {
+    try {
+      const href = new URL(match[1], baseUrl).toString();
+      const text = htmlVisibleText(match[2]).slice(0, 180);
+      links.push({ href, text });
+    } catch {
+      // Ignore malformed links.
+    }
+  }
+  return links;
+}
+
+export async function fetchSafeFirstPartyPage(
+  candidateDomain: string,
+  target: string | URL = "/",
+): Promise<FirstPartyPage | null> {
+  const domain = cleanFirstPartyDomain(candidateDomain);
+  if (!domain || !isSafeWebsiteHostname(domain)) return null;
+
+  let current: URL;
+  try {
+    current = target instanceof URL ? new URL(target.toString()) : new URL(target, `https://${domain}/`);
+  } catch {
+    return null;
+  }
+  if (current.protocol !== "https:" || !sameSiteHostname(current.hostname, domain)) return null;
+
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
     if (current.protocol !== "https:" || !sameSiteHostname(current.hostname, domain) || !(await resolvesPublicly(current.hostname))) return null;
     let response: Response;
@@ -166,7 +209,7 @@ async function fetchFirstPartyPage(domain: string): Promise<{ html: string; url:
       response = await fetch(current, {
         headers: {
           Accept: "text/html,application/xhtml+xml",
-          "User-Agent": "SelykaiCompanyIntelligence/0.4.1 (+https://selykai.com)",
+          "User-Agent": "SelykaiCompanyIntelligence/0.5 (+https://selykai.com)",
         },
         redirect: "manual",
         cache: "no-store",
@@ -208,14 +251,14 @@ export async function verifyCompanyWebsite(
   companyName: string,
   candidateDomain?: string,
 ): Promise<{ web?: Partial<CompanyWebIntelligence>; evidence?: SourceEvidence }> {
-  const domain = cleanDomain(candidateDomain);
+  const domain = cleanFirstPartyDomain(candidateDomain);
   if (!domain || !isSafeWebsiteHostname(domain)) return {};
   const cacheKey = `direct-web:v1:${domain}:${normalizeText(companyName)}`;
   const cached = await readProviderCache<CachedWebsiteVerification>(cacheKey);
   let result = cached;
 
   if (!result) {
-    const page = await fetchFirstPartyPage(domain);
+    const page = await fetchSafeFirstPartyPage(domain);
     if (!page) return {};
     const title = htmlTitle(page.html);
     const description = htmlDescription(page.html);
