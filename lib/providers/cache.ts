@@ -1,4 +1,5 @@
 import { hasDatabase, sqlClient } from "@/lib/db";
+import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 
 export async function readProviderCache<T>(cacheKey: string): Promise<T | null> {
   if (!hasDatabase()) return null;
@@ -23,7 +24,7 @@ export async function writeProviderCache(
   payload: unknown,
   ttlSeconds: number,
 ): Promise<void> {
-  if (!hasDatabase()) return;
+  if (!hasDatabase() || !canWriteRuntimeState()) return;
 
   try {
     const sql = sqlClient();
