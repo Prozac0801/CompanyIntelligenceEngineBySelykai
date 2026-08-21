@@ -6,110 +6,10 @@ import type { CompanyFact, FactValue } from "@/types/intelligence";
 const INPI_API_BASE = "https://registre-national-entreprises.inpi.fr/api";
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 
-interface TokenCache {
-  value: string;
-  expiresAt: number;
-}
+interface TokenCache { value: string; expiresAt: number }
+interface InpiAuthResponse { token?: string }
 
-interface InpiAuthResponse {
-  token?: string;
-}
-
-interface InpiLegalEntity {
-  roleEntreprise?: string | null;
-  pays?: string | null;
-  siren?: string | null;
-  registre?: string | null;
-  denomination?: string | null;
-  formeJuridique?: string | null;
-  dateEffet?: string | null;
-  nicSiege?: string | null;
-  nomCommercial?: string | null;
-  codeApe?: string | null;
-}
-
-interface InpiLegalDescription {
-  objet?: string | null;
-  sigle?: string | null;
-  duree?: number | null;
-  dateClotureExerciceSocial?: string | null;
-  datePremiereCloture?: string | null;
-  ess?: boolean | null;
-  societeMission?: boolean | null;
-  capitalVariable?: boolean | null;
-  montantCapital?: number | null;
-  capitalMinimum?: number | null;
-  deviseCapital?: string | null;
-  natureDesActivite?: string | null;
-}
-
-interface InpiAddress {
-  codePays?: string | null;
-  pays?: string | null;
-  codePostal?: string | null;
-  commune?: string | null;
-  codeInseeCommune?: string | null;
-  typeVoie?: string | null;
-  voie?: string | null;
-  voieCodifiee?: string | null;
-  numVoie?: string | null;
-  indiceRepetition?: string | null;
-  distributionSpeciale?: string | null;
-  complementLocalisation?: string | null;
-  communeAncienne?: string | null;
-}
-
-interface InpiActivity {
-  indicateurPrincipal?: boolean | null;
-  rolePrincipalPourEntreprise?: boolean | null;
-  codeApe?: string | null;
-  dateDebut?: string | null;
-  dateFin?: string | null;
-}
-
-interface InpiEstablishmentDescription {
-  siret?: string | null;
-  indicateurEtablissementPrincipal?: boolean | null;
-  dateEffet?: string | null;
-  dateEffetFermeture?: string | null;
-}
-
-interface InpiEstablishmentRecord {
-  descriptionEtablissement?: InpiEstablishmentDescription | null;
-  adresse?: InpiAddress | null;
-  activites?: InpiActivity[] | null;
-  detailCessationEtablissement?: unknown;
-}
-
-interface InpiEstablishmentContainer {
-  etablissementPrincipal?: InpiEstablishmentRecord | null;
-  etablissementModifie?: InpiEstablishmentRecord | null;
-  autresEtablissements?: InpiEstablishmentRecord[] | null;
-}
-
-interface InpiCompanyRecord {
-  diffusionINSEE?: string | null;
-  siren?: string | null;
-  typePersonne?: string | null;
-  diffusionCommerciale?: boolean | null;
-  content?: {
-    formeExerciceActivitePrincipale?: string | null;
-    natureCreation?: {
-      dateCreation?: string | null;
-      formeJuridique?: string | null;
-      microEntreprise?: boolean | null;
-      societeEtrangere?: boolean | null;
-    } | null;
-    personneMorale?: (InpiEstablishmentContainer & {
-      identite?: {
-        entreprise?: InpiLegalEntity | null;
-        description?: InpiLegalDescription | null;
-      } | null;
-    }) | null;
-    personnePhysique?: InpiEstablishmentContainer | null;
-    exploitation?: InpiEstablishmentContainer | null;
-  } | null;
-}
+type JsonObject = Record<string, unknown>;
 
 export interface InpiRneSupplement {
   facts: CompanyFact[];
@@ -132,267 +32,289 @@ export function isInpiRneConfigured(): boolean {
 async function login(): Promise<string> {
   const auth = credentials();
   if (!auth) throw new Error("INPI RNE credentials are not configured.");
-
   const startedAt = Date.now();
   let response: Response;
   try {
     response = await fetch(`${INPI_API_BASE}/sso/login`, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify(auth),
       cache: "no-store",
     });
   } catch (error) {
-    await recordProviderRun({
-      providerId: "inpi-rne",
-      operation: "authenticate",
-      status: "network_error",
-      latencyMs: Date.now() - startedAt,
-    });
+    await recordProviderRun({ providerId: "inpi-rne", operation: "authenticate", status: "network_error", latencyMs: Date.now() - startedAt });
     throw error;
   }
-
-  await recordProviderRun({
-    providerId: "inpi-rne",
-    operation: "authenticate",
-    status: providerStatusFromHttp(response.status),
-    httpStatus: response.status,
-    latencyMs: Date.now() - startedAt,
-  });
-
-  if (!response.ok) {
-    throw new Error(`INPI RNE authentication failed (${response.status}).`);
-  }
-
+  await recordProviderRun({ providerId: "inpi-rne", operation: "authenticate", status: providerStatusFromHttp(response.status), httpStatus: response.status, latencyMs: Date.now() - startedAt });
+  if (!response.ok) throw new Error(`INPI RNE authentication failed (${response.status}).`);
   const data = (await response.json()) as InpiAuthResponse;
   if (!data.token) throw new Error("INPI RNE authentication returned no token.");
-
   cachedToken = { value: data.token, expiresAt: Date.now() + TOKEN_TTL_MS };
   return data.token;
 }
 
 async function token(forceRefresh = false): Promise<string> {
-  if (!forceRefresh && cachedToken && cachedToken.expiresAt > Date.now()) {
-    return cachedToken.value;
-  }
+  if (!forceRefresh && cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.value;
   return login();
 }
 
-async function getJson<T>(path: string): Promise<T | null> {
+async function getJson(path: string): Promise<unknown | null> {
   const startedAt = Date.now();
-  const perform = async (bearer: string) => {
-    try {
-      return await fetch(`${INPI_API_BASE}${path}`, {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${bearer}`,
-        },
-        cache: "no-store",
-      });
-    } catch (error) {
-      await recordProviderRun({
-        providerId: "inpi-rne",
-        operation: "company_lookup",
-        status: "network_error",
-        latencyMs: Date.now() - startedAt,
-      });
-      throw error;
-    }
-  };
-
-  let response = await perform(await token());
-  if (response.status === 401) {
-    cachedToken = null;
-    response = await perform(await token(true));
-  }
-
-  await recordProviderRun({
-    providerId: "inpi-rne",
-    operation: "company_lookup",
-    status: providerStatusFromHttp(response.status),
-    httpStatus: response.status,
-    latencyMs: Date.now() - startedAt,
+  const perform = async (bearer: string) => fetch(`${INPI_API_BASE}${path}`, {
+    headers: { Accept: "application/json", Authorization: `Bearer ${bearer}` },
+    cache: "no-store",
   });
 
+  let response: Response;
+  try {
+    response = await perform(await token());
+    if (response.status === 401) {
+      cachedToken = null;
+      response = await perform(await token(true));
+    }
+  } catch (error) {
+    await recordProviderRun({ providerId: "inpi-rne", operation: "company_lookup", status: "network_error", latencyMs: Date.now() - startedAt });
+    throw error;
+  }
+
+  await recordProviderRun({ providerId: "inpi-rne", operation: "company_lookup", status: providerStatusFromHttp(response.status), httpStatus: response.status, latencyMs: Date.now() - startedAt });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`INPI RNE request failed (${response.status}).`);
-  return (await response.json()) as T;
+  return response.json();
+}
+
+function object(value: unknown): JsonObject | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : undefined;
+}
+
+function normalizedKey(key: string): string {
+  return key.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+}
+
+function property(source: unknown, ...names: string[]): unknown {
+  const obj = object(source);
+  if (!obj) return undefined;
+  const wanted = new Set(names.map(normalizedKey));
+  for (const [key, value] of Object.entries(obj)) {
+    if (wanted.has(normalizedKey(key))) return value;
+  }
+  return undefined;
+}
+
+function stringValue(source: unknown, ...names: string[]): string | undefined {
+  const value = property(source, ...names);
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).replace(/\s+/g, " ").trim();
+    return text || undefined;
+  }
+  return undefined;
+}
+
+function booleanValue(source: unknown, ...names: string[]): boolean | undefined {
+  const value = property(source, ...names);
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function walkObjects(root: unknown, visitor: (value: JsonObject) => void, maxNodes = 6000): void {
+  const queue: unknown[] = [root];
+  const seen = new Set<object>();
+  let nodes = 0;
+  while (queue.length && nodes < maxNodes) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+    if (seen.has(current as object)) continue;
+    seen.add(current as object);
+    nodes += 1;
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+    const obj = current as JsonObject;
+    visitor(obj);
+    queue.push(...Object.values(obj));
+  }
+}
+
+function findFirstObject(root: unknown, predicate: (value: JsonObject) => boolean): JsonObject | undefined {
+  let found: JsonObject | undefined;
+  walkObjects(root, (value) => {
+    if (!found && predicate(value)) found = value;
+  });
+  return found;
+}
+
+function deepProperty(root: unknown, ...names: string[]): unknown {
+  let found: unknown;
+  walkObjects(root, (value) => {
+    if (found !== undefined) return;
+    const candidate = property(value, ...names);
+    if (candidate !== undefined && candidate !== null && candidate !== "") found = candidate;
+  });
+  return found;
 }
 
 function fingerprint(key: string, value: FactValue): string {
   return createHash("sha256").update(`${key}:${JSON.stringify(value)}`).digest("hex");
 }
 
-function fact(
-  type: CompanyFact["type"],
-  key: string,
-  value: FactValue,
-  evidence: SourceEvidence,
-): CompanyFact {
+function fact(type: CompanyFact["type"], key: string, value: FactValue, evidence: SourceEvidence): CompanyFact {
   return { type, key, value, evidence, fingerprint: fingerprint(key, value) };
 }
 
-function pushFact(
-  target: CompanyFact[],
-  type: CompanyFact["type"],
-  key: string,
-  value: FactValue | undefined,
-  evidence: SourceEvidence,
-) {
+function pushFact(target: CompanyFact[], type: CompanyFact["type"], key: string, value: FactValue | undefined, evidence: SourceEvidence) {
   if (value === undefined || value === null || value === "") return;
   target.push(fact(type, key, value, evidence));
 }
 
-function clean(value?: string | null): string | undefined {
-  const normalized = value?.replace(/\s+/g, " ").trim();
-  return normalized || undefined;
+function addressFromRecord(record: unknown): JsonObject | undefined {
+  return object(property(record, "adresse", "adresseEtablissement", "adresseEntreprise"));
 }
 
-function formatAddress(address?: InpiAddress | null): string | undefined {
+function formatAddress(address?: JsonObject): string | undefined {
   if (!address) return undefined;
   const street = [
-    clean(address.numVoie),
-    clean(address.indiceRepetition),
-    clean(address.typeVoie),
-    clean(address.voie || address.voieCodifiee),
+    stringValue(address, "numVoie", "numeroVoie"),
+    stringValue(address, "indiceRepetition"),
+    stringValue(address, "typeVoie"),
+    stringValue(address, "voie", "voieCodifiee", "libelleVoie"),
   ].filter(Boolean).join(" ");
-  const locality = [clean(address.codePostal), clean(address.commune)].filter(Boolean).join(" ");
-  const parts = [clean(address.complementLocalisation), street, clean(address.distributionSpeciale), locality]
-    .filter(Boolean);
+  const locality = [stringValue(address, "codePostal"), stringValue(address, "commune", "libelleCommune")].filter(Boolean).join(" ");
+  const parts = [stringValue(address, "complementLocalisation"), street, stringValue(address, "distributionSpeciale"), locality].filter(Boolean);
   return parts.join(", ") || undefined;
 }
 
-function normalizeEstablishment(
-  item: InpiEstablishmentRecord,
-  forceHeadOffice = false,
-): CompanyEstablishment | null {
-  const description = item.descriptionEtablissement;
-  const principalActivity = (item.activites || []).find((activity) => activity.indicateurPrincipal)
-    || (item.activites || []).find((activity) => activity.rolePrincipalPourEntreprise)
-    || item.activites?.[0];
-  const address = formatAddress(item.adresse);
-  const siret = clean(description?.siret);
-  if (!siret && !address) return null;
+function activityRecords(record: unknown): JsonObject[] {
+  const value = property(record, "activites", "activite");
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return values.map(object).filter((item): item is JsonObject => Boolean(item));
+}
 
+function normalizeEstablishment(item: unknown, forceHeadOffice = false): CompanyEstablishment | null {
+  const obj = object(item);
+  if (!obj) return null;
+  const description = object(property(obj, "descriptionEtablissement")) || obj;
+  const activities = activityRecords(obj);
+  const principalActivity = activities.find((activity) => booleanValue(activity, "indicateurPrincipal") === true)
+    || activities.find((activity) => booleanValue(activity, "rolePrincipalPourEntreprise") === true)
+    || activities[0];
+  const addressObject = addressFromRecord(obj);
+  const address = formatAddress(addressObject);
+  const siret = stringValue(description, "siret") || stringValue(obj, "siret");
+  if (!siret && !address) return null;
+  const closingDate = stringValue(description, "dateEffetFermeture", "dateFermeture") || stringValue(principalActivity, "dateFin");
   return {
     siret,
     address,
-    postalCode: clean(item.adresse?.codePostal),
-    city: clean(item.adresse?.commune),
-    nafCode: clean(principalActivity?.codeApe),
-    active: !description?.dateEffetFermeture && !principalActivity?.dateFin && !item.detailCessationEtablissement,
-    headOffice: forceHeadOffice || Boolean(description?.indicateurEtablissementPrincipal),
-    createdAt: clean(principalActivity?.dateDebut || description?.dateEffet),
+    postalCode: stringValue(addressObject, "codePostal"),
+    city: stringValue(addressObject, "commune", "libelleCommune"),
+    nafCode: stringValue(principalActivity, "codeApe", "codeAPE") || stringValue(description, "codeApe", "codeAPE"),
+    active: !closingDate,
+    headOffice: forceHeadOffice || booleanValue(description, "indicateurEtablissementPrincipal") === true,
+    createdAt: stringValue(principalActivity, "dateDebut") || stringValue(description, "dateEffet", "dateCreation"),
   };
 }
 
-export function normalizeInpiEstablishments(record: InpiCompanyRecord): CompanyEstablishment[] {
-  const containers = [record.content?.personneMorale, record.content?.personnePhysique, record.content?.exploitation]
-    .filter((container): container is InpiEstablishmentContainer => Boolean(container));
-  const normalized: CompanyEstablishment[] = [];
+function collectEstablishmentContainers(root: unknown): JsonObject[] {
+  const containers: JsonObject[] = [];
+  walkObjects(root, (value) => {
+    if (
+      property(value, "etablissementPrincipal") !== undefined
+      || property(value, "autresEtablissements") !== undefined
+      || property(value, "etablissementModifie") !== undefined
+    ) containers.push(value);
+  });
+  return containers;
+}
 
-  for (const container of containers) {
-    if (container.etablissementPrincipal) {
-      const establishment = normalizeEstablishment(container.etablissementPrincipal, true);
+export function normalizeInpiEstablishments(record: unknown): CompanyEstablishment[] {
+  const normalized: CompanyEstablishment[] = [];
+  for (const container of collectEstablishmentContainers(record)) {
+    const principal = property(container, "etablissementPrincipal");
+    if (principal) {
+      const establishment = normalizeEstablishment(principal, true);
       if (establishment) normalized.push(establishment);
     }
-    for (const item of container.autresEtablissements || []) {
+    const others = property(container, "autresEtablissements");
+    for (const item of Array.isArray(others) ? others : []) {
       const establishment = normalizeEstablishment(item, false);
       if (establishment) normalized.push(establishment);
     }
-    if (container.etablissementModifie) {
-      const establishment = normalizeEstablishment(container.etablissementModifie, false);
+    const modified = property(container, "etablissementModifie");
+    if (modified) {
+      const establishment = normalizeEstablishment(modified, false);
       if (establishment) normalized.push(establishment);
     }
   }
 
-  const seen = new Set<string>();
-  return normalized.filter((item) => {
-    const key = item.siret || `${item.address || ""}|${item.city || ""}`;
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const merged = new Map<string, CompanyEstablishment>();
+  for (const item of normalized) {
+    const key = item.siret || `${item.address || ""}|${item.city || ""}`.toLowerCase();
+    if (!key) continue;
+    const current = merged.get(key);
+    if (!current) {
+      merged.set(key, item);
+      continue;
+    }
+    merged.set(key, {
+      ...current,
+      ...Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined)),
+      headOffice: Boolean(current.headOffice || item.headOffice),
+      active: current.active === false && item.active === false ? false : Boolean(current.active || item.active),
+    });
+  }
+  return Array.from(merged.values());
 }
 
 function buildEvidence(siren: string): SourceEvidence {
-  return {
-    providerId: "inpi-rne",
-    provider: "INPI / RNE",
-    kind: "official",
-    observedAt: new Date().toISOString(),
-    sourceUrl: `${INPI_API_BASE}/companies/${siren}`,
-    confidence: 1,
-  };
+  return { providerId: "inpi-rne", provider: "INPI / RNE", kind: "official", observedAt: new Date().toISOString(), sourceUrl: `${INPI_API_BASE}/companies/${siren}`, confidence: 1 };
 }
 
-function factsFromRecord(record: InpiCompanyRecord, siren: string, evidence: SourceEvidence): CompanyFact[] {
-  const legalIdentity = record.content?.personneMorale?.identite?.entreprise;
-  const legalDescription = record.content?.personneMorale?.identite?.description;
-  const creation = record.content?.natureCreation;
+function factsFromRecord(record: unknown, siren: string, evidence: SourceEvidence): CompanyFact[] {
+  const legalIdentity = findFirstObject(record, (value) => Boolean(stringValue(value, "denomination") && (stringValue(value, "formeJuridique") || stringValue(value, "codeApe"))));
+  const legalDescription = findFirstObject(record, (value) => property(value, "objet") !== undefined || property(value, "montantCapital") !== undefined);
+  const creation = findFirstObject(record, (value) => property(value, "dateCreation") !== undefined && property(value, "formeJuridique") !== undefined);
   const facts: CompanyFact[] = [];
 
-  pushFact(facts, "identity", "rne_siren", record.siren || siren, evidence);
-  pushFact(facts, "identity", "rne_legal_name", legalIdentity?.denomination ?? undefined, evidence);
-  pushFact(facts, "identity", "rne_legal_form", legalIdentity?.formeJuridique ?? creation?.formeJuridique ?? undefined, evidence);
-  pushFact(facts, "activity", "rne_ape_code", legalIdentity?.codeApe ?? undefined, evidence);
-  pushFact(facts, "activity", "rne_main_activity_form", record.content?.formeExerciceActivitePrincipale ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_creation_date", creation?.dateCreation ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_micro_enterprise", creation?.microEntreprise ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_foreign_company", creation?.societeEtrangere ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_social_economy", legalDescription?.ess ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_mission_company", legalDescription?.societeMission ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_variable_capital", legalDescription?.capitalVariable ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_capital_amount", legalDescription?.montantCapital ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_capital_currency", legalDescription?.deviseCapital ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_corporate_purpose", legalDescription?.objet ?? undefined, evidence);
-  pushFact(facts, "structure", "rne_diffusion_insee", record.diffusionINSEE ?? undefined, evidence);
-  pushFact(facts, "structure", "commercial_prospecting_allowed", record.diffusionCommerciale ?? undefined, evidence);
-
+  pushFact(facts, "identity", "rne_siren", (typeof deepProperty(record, "siren") === "string" ? deepProperty(record, "siren") as string : siren), evidence);
+  pushFact(facts, "identity", "rne_legal_name", stringValue(legalIdentity, "denomination"), evidence);
+  pushFact(facts, "identity", "rne_legal_form", stringValue(legalIdentity, "formeJuridique") || stringValue(creation, "formeJuridique"), evidence);
+  pushFact(facts, "activity", "rne_ape_code", stringValue(legalIdentity, "codeApe", "codeAPE"), evidence);
+  const mainActivityForm = deepProperty(record, "formeExerciceActivitePrincipale");
+  pushFact(facts, "activity", "rne_main_activity_form", typeof mainActivityForm === "string" ? mainActivityForm : undefined, evidence);
+  pushFact(facts, "structure", "rne_creation_date", stringValue(creation, "dateCreation"), evidence);
+  pushFact(facts, "structure", "rne_micro_enterprise", booleanValue(creation, "microEntreprise"), evidence);
+  pushFact(facts, "structure", "rne_foreign_company", booleanValue(creation, "societeEtrangere"), evidence);
+  pushFact(facts, "structure", "rne_social_economy", booleanValue(legalDescription, "ess"), evidence);
+  pushFact(facts, "structure", "rne_mission_company", booleanValue(legalDescription, "societeMission"), evidence);
+  pushFact(facts, "structure", "rne_variable_capital", booleanValue(legalDescription, "capitalVariable"), evidence);
+  const capital = property(legalDescription, "montantCapital");
+  pushFact(facts, "structure", "rne_capital_amount", typeof capital === "number" ? capital : undefined, evidence);
+  pushFact(facts, "structure", "rne_capital_currency", stringValue(legalDescription, "deviseCapital"), evidence);
+  pushFact(facts, "structure", "rne_corporate_purpose", stringValue(legalDescription, "objet"), evidence);
+  const diffusionInsee = deepProperty(record, "diffusionINSEE");
+  pushFact(facts, "structure", "rne_diffusion_insee", typeof diffusionInsee === "string" ? diffusionInsee : undefined, evidence);
+  const diffusionCommerciale = deepProperty(record, "diffusionCommerciale");
+  pushFact(facts, "structure", "commercial_prospecting_allowed", typeof diffusionCommerciale === "boolean" ? diffusionCommerciale : undefined, evidence);
   return facts;
 }
 
 export async function getInpiRneSupplement(siren: string): Promise<InpiRneSupplement> {
   if (!/^\d{9}$/.test(siren) || !isInpiRneConfigured()) return { facts: [], establishments: [] };
-
-  const record = await getJson<InpiCompanyRecord>(`/companies/${siren}`);
+  const record = await getJson(`/companies/${siren}`);
   if (!record) return { facts: [], establishments: [] };
   const evidence = buildEvidence(siren);
-  return {
-    facts: factsFromRecord(record, siren, evidence),
-    establishments: normalizeInpiEstablishments(record),
-    evidence,
-  };
+  return { facts: factsFromRecord(record, siren, evidence), establishments: normalizeInpiEstablishments(record), evidence };
 }
 
 export async function getInpiRneFacts(siren: string): Promise<CompanyFact[]> {
   return (await getInpiRneSupplement(siren)).facts;
 }
 
-export interface InpiCommercialReuseDecision {
-  status: "allowed" | "blocked" | "unknown";
-  reason: string;
-}
+export interface InpiCommercialReuseDecision { status: "allowed" | "blocked" | "unknown"; reason: string }
 
 export function commercialReuseDecision(facts: CompanyFact[]): InpiCommercialReuseDecision {
   const flag = facts.find((item) => item.key === "commercial_prospecting_allowed");
-  if (flag?.value === false) {
-    return {
-      status: "blocked",
-      reason: "INPI/RNE indique une opposition à la réutilisation des données à des fins de prospection.",
-    };
-  }
-  if (flag?.value === true) {
-    return {
-      status: "allowed",
-      reason: "Aucune opposition à la diffusion commerciale n’est indiquée dans la donnée RNE observée.",
-    };
-  }
-  return {
-    status: "unknown",
-    reason: "Le statut diffusionCommerciale n’est pas disponible ; aucun enrichissement de prospection ne doit être supposé autorisé.",
-  };
+  if (flag?.value === false) return { status: "blocked", reason: "INPI/RNE indique une opposition à la réutilisation des données à des fins de prospection." };
+  if (flag?.value === true) return { status: "allowed", reason: "Aucune opposition à la diffusion commerciale n’est indiquée dans la donnée RNE observée." };
+  return { status: "unknown", reason: "Le statut diffusionCommerciale n’est pas disponible ; aucun enrichissement de prospection ne doit être supposé autorisé." };
 }
