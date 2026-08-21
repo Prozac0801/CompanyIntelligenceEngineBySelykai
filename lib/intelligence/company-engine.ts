@@ -2,7 +2,7 @@ import { hasDatabase } from "@/lib/db";
 import {
   getBodaccEvents,
   getCompanyBySiren,
-  getInpiRneFacts,
+  getInpiRneSupplement,
   isInpiRneConfigured,
 } from "@/lib/providers";
 import { computeOpportunityScore } from "@/lib/scoring/opportunity";
@@ -14,37 +14,78 @@ import { buildCompanyIntelligenceSummary } from "@/lib/intelligence/summary";
 import { loadOpportunityBenchmark } from "@/lib/persistence/benchmark-repository";
 import { loadLatestFacts, persistCompanyAnalysis } from "@/lib/persistence/company-repository";
 import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
-import type { CompanyProfile } from "@/types/company";
+import type { CompanyEstablishment, CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
 
-export const ENGINE_VERSION = "0.4.0";
+export const ENGINE_VERSION = "0.4.1";
 
-async function supplementalFacts(siren: string): Promise<CompanyFact[]> {
-  if (!isInpiRneConfigured()) return [];
+interface RneSupplement {
+  facts: CompanyFact[];
+  establishments: CompanyEstablishment[];
+}
+
+async function supplementalRne(siren: string): Promise<RneSupplement> {
+  if (!isInpiRneConfigured()) return { facts: [], establishments: [] };
 
   try {
-    return await getInpiRneFacts(siren);
+    const supplement = await getInpiRneSupplement(siren);
+    return { facts: supplement.facts, establishments: supplement.establishments };
   } catch (error) {
     console.warn(
       "INPI RNE supplemental provider unavailable; continuing with primary source.",
       error instanceof Error ? error.message : "unknown_error",
     );
-    return [];
+    return { facts: [], establishments: [] };
   }
+}
+
+function establishmentKey(item: CompanyEstablishment): string {
+  if (item.siret) return `siret:${item.siret}`;
+  return `address:${[item.address, item.postalCode, item.city].filter(Boolean).join("|").toLocaleLowerCase("fr-FR")}`;
+}
+
+export function mergeCompanyEstablishments(
+  primary: CompanyEstablishment[],
+  rne: CompanyEstablishment[],
+): CompanyEstablishment[] {
+  const merged = new Map<string, CompanyEstablishment>();
+
+  for (const item of [...rne, ...primary]) {
+    const key = establishmentKey(item);
+    if (key === "address:") continue;
+    const current = merged.get(key);
+    merged.set(key, current ? {
+      ...current,
+      ...Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined)),
+      headOffice: Boolean(current.headOffice || item.headOffice),
+      active: item.active ?? current.active,
+    } : item);
+  }
+
+  return Array.from(merged.values()).sort((a, b) => {
+    if (a.headOffice !== b.headOffice) return a.headOffice ? -1 : 1;
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return (a.city || a.address || a.siret || "").localeCompare(b.city || b.address || b.siret || "", "fr");
+  });
 }
 
 export async function analyzeCompany(
   siren: string,
   options: { persist?: boolean } = {},
 ): Promise<CompanyAnalysisResult<CompanyProfile> | null> {
-  const company = await getCompanyBySiren(siren);
-  if (!company) return null;
+  const primaryCompany = await getCompanyBySiren(siren);
+  if (!primaryCompany) return null;
 
-  const [rneFacts, baseEnrichment, bodacc] = await Promise.all([
-    supplementalFacts(siren),
-    enrichCompany(company),
+  const [rne, baseEnrichment, bodacc] = await Promise.all([
+    supplementalRne(siren),
+    enrichCompany(primaryCompany),
     getBodaccEvents(siren, 30),
   ]);
+
+  const company: CompanyProfile = {
+    ...primaryCompany,
+    establishments: mergeCompanyEstablishments(primaryCompany.establishments, rne.establishments),
+  };
 
   const enrichment = {
     ...baseEnrichment,
@@ -56,7 +97,7 @@ export async function analyzeCompany(
 
   const facts = [
     ...factsFromCompany(company),
-    ...rneFacts,
+    ...rne.facts,
     ...factsFromEnrichment(enrichment),
   ];
   const databaseConfigured = hasDatabase();
