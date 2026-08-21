@@ -10,6 +10,7 @@ import type {
 import type { CompanyEvent, CompanyFact, CompanySignal } from "@/types/intelligence";
 import {
   hasRecentCriticalLegalEvent,
+  isCommercialMomentumLegalEvent,
   isRecentLegalEvent,
   legalEventAgeDays,
 } from "@/lib/intelligence/legal-events";
@@ -126,15 +127,18 @@ function triggerFactorLabel(trigger: CompanyBusinessTrigger): string {
 }
 
 function momentumScore(input: ScoreInput): { subscore: ScoreSubscore; factors: ScoreFactor[] } {
-  const { events, signals } = input;
+  const { events, signals, enrichment } = input;
   const evidence: string[] = [];
   const factors: ScoreFactor[] = [];
   const positiveTriggers = (input.triggers || [])
     .filter((trigger) => trigger.direction !== "negative" && trigger.confidence >= 0.65)
     .sort((a, b) => b.strength * b.confidence - a.strength * a.confidence);
   const negativeTriggers = (input.triggers || []).filter((trigger) => trigger.direction === "negative");
+  const legacyLegalTriggers = input.triggers === undefined
+    ? enrichment.legalEvents.filter((event) => isCommercialMomentumLegalEvent(event))
+    : [];
   const positiveSignals = signals.filter((signal) => !["LEGAL_RISK", "CONTRACTION"].includes(signal.type));
-  const dynamicCount = positiveTriggers.length + events.length + positiveSignals.length;
+  const dynamicCount = positiveTriggers.length + events.length + positiveSignals.length + legacyLegalTriggers.length;
 
   if (dynamicCount === 0) {
     return {
@@ -162,6 +166,13 @@ function momentumScore(input: ScoreInput): { subscore: ScoreSubscore; factors: S
     factors.push(factor("momentum", triggerFactorLabel(trigger), points, trigger.description));
   });
 
+  if (legacyLegalTriggers.length) {
+    const points = Math.min(28, legacyLegalTriggers.length * 12);
+    value += points;
+    evidence.push(`${legacyLegalTriggers.length} déclencheur(s) BODACC récent(s)`);
+    factors.push(factor("momentum", "Activité juridique exploitable", points, legacyLegalTriggers.slice(0, 2).map((event) => event.family).join(" · ")));
+  }
+
   const historicalEvents = events.filter((event) => ![
     "ESTABLISHMENT_CLOSURE",
   ].includes(event.type));
@@ -184,7 +195,7 @@ function momentumScore(input: ScoreInput): { subscore: ScoreSubscore; factors: S
   }
 
   const confidenceEvidence = [
-    positiveTriggers.length > 0,
+    positiveTriggers.length > 0 || legacyLegalTriggers.length > 0,
     historicalEvents.length > 0,
     positiveSignals.length > 0,
     positiveTriggers.some((trigger) => trigger.confidence >= 0.9),
