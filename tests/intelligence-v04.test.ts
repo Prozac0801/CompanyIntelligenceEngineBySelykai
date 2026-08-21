@@ -95,11 +95,11 @@ describe("BODACC semantics", () => {
     })).toBe("critical");
   });
 
-  it("does not classify a collective-procedure closure as critical", () => {
+  it("does not classify a liquidation closure as an active critical procedure", () => {
     expect(classifyBodaccRisk({
       code: "collective",
       label: "Procédures collectives",
-      detail: "Jugement de clôture pour insuffisance d'actif",
+      detail: "Jugement de clôture de la procédure de liquidation judiciaire pour insuffisance d'actif",
     })).toBe("warning");
   });
 
