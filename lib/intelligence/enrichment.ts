@@ -14,6 +14,8 @@ import {
   resolveHunterDomain,
 } from "@/lib/providers/hunter";
 import { verifyCompanyWebsite } from "@/lib/providers/direct-web";
+import { getBoampAwards } from "@/lib/providers/boamp";
+import { getFirstPartyHiringIntelligence } from "@/lib/providers/careers";
 import { createFact } from "./facts";
 
 type WebsiteVerificationResult = Awaited<ReturnType<typeof verifyCompanyWebsite>>;
@@ -93,15 +95,17 @@ export function mergeWebIntelligence(
 export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnrichment> {
   const domainPromise = resolveHunterDomain(company.name);
   const newsPromise = getCompanyNews(company.name);
+  const procurementPromise = getBoampAwards(company.name, company.siren);
 
   const domain = await domainPromise;
-  const [initialHunter, serpResult, newsResult, initialFirstParty] = await Promise.all([
+  const [initialHunter, serpResult, newsResult, initialFirstParty, procurementResult] = await Promise.all([
     domain ? getHunterCompanyIntelligence(domain) : Promise.resolve(null),
     getSerpWebIntelligence(company.name, domain),
     newsPromise,
     domain
       ? verifyCompanyWebsite(company.name, domain)
       : Promise.resolve({} as WebsiteVerificationResult),
+    procurementPromise,
   ]);
 
   const fallbackDomain = domain || serpResult.web?.domain;
@@ -111,18 +115,26 @@ export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnr
   const firstPartyResult: WebsiteVerificationResult = initialFirstParty.web || initialFirstParty.evidence || !fallbackDomain
     ? initialFirstParty
     : await verifyCompanyWebsite(company.name, fallbackDomain);
+  const web = mergeWebIntelligence(hunterResult?.web, serpResult.web, firstPartyResult.web);
+  const hiringResult = web?.domainVerified && web.domain
+    ? await getFirstPartyHiringIntelligence(company.name, web.domain)
+    : {};
 
   const evidence: SourceEvidence[] = [
     hunterResult?.evidence,
     serpResult.evidence,
     firstPartyResult.evidence,
     newsResult.evidence,
+    procurementResult.evidence,
+    hiringResult.evidence,
   ].filter((item): item is SourceEvidence => Boolean(item));
 
   return {
-    web: mergeWebIntelligence(hunterResult?.web, serpResult.web, firstPartyResult.web),
+    web,
     news: newsResult.news,
     legalEvents: [],
+    procurementAwards: procurementResult.awards,
+    hiring: hiringResult.hiring,
     evidence,
   };
 }
@@ -134,6 +146,10 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
   const firstPartyEvidence = enrichment.evidence.find(
     (item) => item.providerId === "selykai-engine" && item.provider === "Selykai Web Verification",
   );
+  const hiringEvidence = enrichment.evidence.find(
+    (item) => item.providerId === "selykai-engine" && item.provider === "Selykai Career Discovery",
+  );
+  const boampEvidence = enrichment.evidence.find((item) => item.providerId === "boamp");
   const corroborationEvidence = firstPartyEvidence || apiLayerEvidence;
   const web = enrichment.web;
 
@@ -178,6 +194,23 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
         ),
       );
     }
+  }
+
+  if (boampEvidence) {
+    const awards = enrichment.procurementAwards || [];
+    facts.push(createFact("commercial", "boamp_award_count", awards.length, boampEvidence));
+    facts.push(createFact("commercial", "boamp_latest_award_id", awards[0]?.id || null, boampEvidence));
+    facts.push(createFact("commercial", "boamp_latest_award_date", awards[0]?.publishedAt || null, boampEvidence));
+    facts.push(createFact("commercial", "boamp_award_ids", awards.map((award) => award.id).sort(), boampEvidence));
+  }
+
+  if (hiringEvidence && enrichment.hiring) {
+    const hiring = enrichment.hiring;
+    facts.push(createFact("workforce", "hiring_detected", hiring.hiringDetected, hiringEvidence));
+    facts.push(createFact("workforce", "hiring_opening_count", hiring.activeOpeningCount ?? 0, hiringEvidence));
+    facts.push(createFact("workforce", "hiring_job_titles", hiring.jobTitles, hiringEvidence));
+    facts.push(createFact("workforce", "hiring_latest_posted_at", hiring.latestPostedAt || null, hiringEvidence));
+    facts.push(createFact("workforce", "hiring_detection_method", hiring.method, hiringEvidence));
   }
 
   const bodaccEvidence = enrichment.evidence.find((item) => item.providerId === "bodacc");
