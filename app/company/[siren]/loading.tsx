@@ -1,12 +1,13 @@
-import { DatabaseZap, Globe2, Radar, ShieldCheck, Sparkles } from "lucide-react";
+import { DatabaseZap, FileSearch, Globe2, Radar, ShieldCheck, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 
 const steps = [
-  ["Registre officiel", "Identité · SIREN · établissements"],
-  ["INPI / RNE", "Recoupement juridique et faits RNE"],
-  ["Hunter", "Domaine · firmographie · technologies"],
-  ["APILayer", "SERP · actualités · géolocalisation"],
-  ["Selykai Engine", "Signaux · scoring · historisation"],
+  ["Registre officiel", "Identité · SIREN · établissements", "official"],
+  ["INPI / RNE", "Recoupement juridique et faits RNE", "official"],
+  ["BODACC / DILA", "Annonces · modifications · procédures · comptes", "legal"],
+  ["Hunter", "Domaine · firmographie · technologies", "web"],
+  ["APILayer", "SERP · actualités lorsque disponibles", "web"],
+  ["Selykai Engine", "Fit · Momentum · Access · Risk · Confidence", "engine"],
 ] as const;
 
 export default function CompanyLoading() {
@@ -24,20 +25,23 @@ export default function CompanyLoading() {
             <span className="analysis-node node-c" />
           </div>
           <div>
-            <p className="context-line"><Sparkles size={14} /> COMPANY INTELLIGENCE ENGINE</p>
-            <h1>Analyse multi-source en cours</h1>
-            <p className="lead">Le moteur recoupe les faits officiels, enrichit la présence web puis calcule les signaux sans mélanger faits et inférences.</p>
+            <p className="context-line"><Sparkles size={14} /> COMPANY INTELLIGENCE ENGINE V0.4</p>
+            <h1>Construction de l’analyse décisionnelle</h1>
+            <p className="lead">Le moteur recoupe les registres officiels, les événements juridiques et la présence web avant de séparer attractivité, momentum, accessibilité, risque et confiance.</p>
           </div>
         </div>
 
         <div className="analysis-step-grid">
-          {steps.map(([title, detail], index) => (
-            <div className="analysis-step" key={title} style={{ animationDelay: `${index * 120}ms` }}>
-              <span>{index === 0 ? <ShieldCheck size={17} /> : index < 4 ? <Globe2 size={17} /> : <DatabaseZap size={17} />}</span>
-              <div><strong>{title}</strong><small>{detail}</small></div>
-              <i />
-            </div>
-          ))}
+          {steps.map(([title, detail, kind], index) => {
+            const Icon = kind === "official" ? ShieldCheck : kind === "legal" ? FileSearch : kind === "engine" ? DatabaseZap : Globe2;
+            return (
+              <div className="analysis-step" key={title} style={{ animationDelay: `${index * 110}ms` }}>
+                <span><Icon size={17} /></span>
+                <div><strong>{title}</strong><small>{detail}</small></div>
+                <i />
+              </div>
+            );
+          })}
         </div>
 
         <div className="analysis-skeleton-grid">

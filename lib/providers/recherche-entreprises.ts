@@ -9,7 +9,7 @@ import type {
 
 const API_BASE = "https://recherche-entreprises.api.gouv.fr";
 const USER_AGENT =
-  "CompanyIntelligenceEngineBySelykai/0.2 (+https://github.com/Prozac0801/CompanyIntelligenceEngineBySelykai)";
+  "CompanyIntelligenceEngineBySelykai/0.4 (+https://github.com/Prozac0801/CompanyIntelligenceEngineBySelykai)";
 
 interface RawHeadOffice {
   siret?: string;
@@ -138,7 +138,7 @@ function normalizeEstablishments(raw: RawCompany): CompanyEstablishment[] {
       seen.add(key);
       return true;
     })
-    .slice(0, 20)
+    .slice(0, 100)
     .map((item) => ({
       siret: item.siret,
       address: item.adresse,
@@ -205,7 +205,7 @@ export async function searchCompanies(query: string, page = 1): Promise<CompanyS
     q: normalizedQuery,
     page: String(Math.max(1, page)),
     per_page: "8",
-    limite_matching_etablissements: "3",
+    limite_matching_etablissements: "5",
   });
   const data = await request(params, 600, "search");
 
@@ -224,7 +224,8 @@ export async function getCompanyBySiren(siren: string): Promise<CompanyProfile |
     q: siren,
     page: "1",
     per_page: "1",
-    limite_matching_etablissements: "12",
+    limite_matching_etablissements: "100",
+    page_etablissements: "1",
   });
   const data = await request(params, 3600, "company_lookup");
   const raw = data.results?.[0];

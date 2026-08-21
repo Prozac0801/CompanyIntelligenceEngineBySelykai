@@ -1,4 +1,5 @@
 import { hasDatabase, sqlClient } from "@/lib/db";
+import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 
 export type ProviderRunStatus =
   | "success"
@@ -18,7 +19,7 @@ export interface ProviderRunInput {
 }
 
 export async function recordProviderRun(input: ProviderRunInput): Promise<void> {
-  if (!hasDatabase()) return;
+  if (!hasDatabase() || !canWriteRuntimeState()) return;
 
   try {
     const sql = sqlClient();

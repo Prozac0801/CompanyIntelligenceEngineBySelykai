@@ -67,6 +67,7 @@ export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnr
   return {
     web: mergeWeb(hunterResult?.web, serpResult.web),
     news: newsResult.news,
+    legalEvents: [],
     evidence,
   };
 }
@@ -107,6 +108,15 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
         ),
       );
     }
+  }
+
+  const bodaccEvidence = enrichment.evidence.find((item) => item.providerId === "bodacc");
+  if (bodaccEvidence) {
+    const recent = enrichment.legalEvents;
+    facts.push(createFact("commercial", "bodacc_event_count", recent.length, bodaccEvidence));
+    facts.push(createFact("commercial", "bodacc_latest_event_id", recent[0]?.id || null, bodaccEvidence));
+    facts.push(createFact("commercial", "bodacc_latest_family", recent[0]?.family || null, bodaccEvidence));
+    facts.push(createFact("commercial", "bodacc_critical_event_count", recent.filter((event) => event.risk === "critical").length, bodaccEvidence));
   }
 
   return facts;

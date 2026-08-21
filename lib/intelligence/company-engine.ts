@@ -1,5 +1,6 @@
 import { hasDatabase } from "@/lib/db";
 import {
+  getBodaccEvents,
   getCompanyBySiren,
   getInpiRneFacts,
   isInpiRneConfigured,
@@ -9,12 +10,14 @@ import { detectCompanyEvents } from "@/lib/intelligence/events";
 import { factMap, factsFromCompany } from "@/lib/intelligence/facts";
 import { enrichCompany, factsFromEnrichment } from "@/lib/intelligence/enrichment";
 import { inferSignals } from "@/lib/intelligence/signals";
+import { buildCompanyIntelligenceSummary } from "@/lib/intelligence/summary";
 import { loadOpportunityBenchmark } from "@/lib/persistence/benchmark-repository";
 import { loadLatestFacts, persistCompanyAnalysis } from "@/lib/persistence/company-repository";
+import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 import type { CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
 
-export const ENGINE_VERSION = "0.3.0";
+export const ENGINE_VERSION = "0.4.0";
 
 async function supplementalFacts(siren: string): Promise<CompanyFact[]> {
   if (!isInpiRneConfigured()) return [];
@@ -37,10 +40,20 @@ export async function analyzeCompany(
   const company = await getCompanyBySiren(siren);
   if (!company) return null;
 
-  const [rneFacts, enrichment] = await Promise.all([
+  const [rneFacts, baseEnrichment, bodacc] = await Promise.all([
     supplementalFacts(siren),
     enrichCompany(company),
+    getBodaccEvents(siren, 30),
   ]);
+
+  const enrichment = {
+    ...baseEnrichment,
+    legalEvents: bodacc.events,
+    evidence: bodacc.evidence
+      ? [...baseEnrichment.evidence, bodacc.evidence]
+      : baseEnrichment.evidence,
+  };
+
   const facts = [
     ...factsFromCompany(company),
     ...rneFacts,
@@ -67,8 +80,11 @@ export async function analyzeCompany(
     }
   }
 
+  const summary = buildCompanyIntelligenceSummary({ company, enrichment, score, signals });
+  const shouldPersist = options.persist ?? canWriteRuntimeState();
+
   let persisted = false;
-  if (databaseConfigured && options.persist !== false) {
+  if (databaseConfigured && shouldPersist && canWriteRuntimeState()) {
     persisted = await persistCompanyAnalysis({ company, enrichment, facts, events, signals, score });
   }
 
@@ -79,6 +95,7 @@ export async function analyzeCompany(
     events,
     signals,
     score,
+    summary,
     meta: {
       persisted,
       databaseConfigured,

@@ -17,3 +17,4 @@ export {
   isHunterProviderConfigured,
   resolveHunterDomain,
 } from "./hunter";
+export { getBodaccEvents } from "./bodacc";
