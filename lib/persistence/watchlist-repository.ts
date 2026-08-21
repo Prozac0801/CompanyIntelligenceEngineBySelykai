@@ -1,4 +1,5 @@
 import { hasDatabase, sqlClient } from "@/lib/db";
+import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 import type {
   AlertSeverity,
   IntelligenceAlert,
@@ -14,6 +15,13 @@ function requireDatabase() {
   return sqlClient();
 }
 
+function requireWritableDatabase() {
+  if (!canWriteRuntimeState()) {
+    throw new Error("Preview deployments are read-only for workspace data.");
+  }
+  return requireDatabase();
+}
+
 function iso(value: string | Date | null | undefined): string | undefined {
   if (!value) return undefined;
   return new Date(value).toISOString();
@@ -24,7 +32,7 @@ export async function createWorkspaceForUser(input: {
   name: string;
   slug: string;
 }): Promise<Workspace> {
-  const sql = requireDatabase();
+  const sql = requireWritableDatabase();
   const rows = (await sql`
     WITH new_workspace AS (
       INSERT INTO workspaces (name, slug, created_by_user_id, created_at, updated_at)
@@ -93,7 +101,7 @@ export async function createWatchlist(input: {
   name: string;
   description?: string;
 }): Promise<Watchlist> {
-  const sql = requireDatabase();
+  const sql = requireWritableDatabase();
   const rows = (await sql`
     INSERT INTO watchlists (workspace_id, name, description, created_by_user_id, created_at, updated_at)
     SELECT ${input.workspaceId}, ${input.name}, ${input.description || null}, ${input.userId}, now(), now()
@@ -157,7 +165,7 @@ export async function addCompanyToWatchlist(input: {
   frequency?: MonitorFrequency;
   notes?: string;
 }): Promise<boolean> {
-  const sql = requireDatabase();
+  const sql = requireWritableDatabase();
   const frequency = input.frequency || "daily";
   const rows = (await sql`
     INSERT INTO watchlist_companies (
@@ -262,7 +270,7 @@ export async function listDueMonitoringTargets(limit = 20): Promise<MonitoringTa
 }
 
 export async function markMonitoringTargetChecked(target: MonitoringTarget): Promise<void> {
-  const sql = requireDatabase();
+  const sql = requireWritableDatabase();
   await sql`
     UPDATE watchlist_companies
     SET
@@ -286,7 +294,7 @@ export async function createIntelligenceAlert(input: {
   body?: string;
   dedupeKey: string;
 }): Promise<boolean> {
-  const sql = requireDatabase();
+  const sql = requireWritableDatabase();
   const rows = (await sql`
     INSERT INTO alerts (
       workspace_id, watchlist_id, company_id, alert_type, severity,
