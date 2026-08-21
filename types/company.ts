@@ -24,6 +24,7 @@ export interface CompanyEstablishment {
   active?: boolean;
   headOffice?: boolean;
   createdAt?: string;
+  closedAt?: string;
 }
 
 export interface CompanySummary {
@@ -102,11 +103,59 @@ export interface CompanyLegalEvent {
   risk: LegalEventRisk;
 }
 
+export interface CompanyProcurementAward {
+  id: string;
+  publishedAt: string;
+  object: string;
+  buyer?: string;
+  holder?: string;
+  procedure?: string;
+  marketType?: string;
+  url?: string;
+  matchConfidence: number;
+  sirenMatched: boolean;
+}
+
+export interface CompanyHiringIntelligence {
+  checkedAt: string;
+  hiringDetected: boolean;
+  careersUrl?: string;
+  activeOpeningCount?: number;
+  jobTitles: string[];
+  latestPostedAt?: string;
+  method: "structured-data" | "first-party-links" | "careers-page" | "not-found";
+}
+
+export type CompanyBusinessTriggerType =
+  | "PUBLIC_CONTRACT_AWARD"
+  | "HIRING"
+  | "ESTABLISHMENT_OPENING"
+  | "ESTABLISHMENT_CLOSURE"
+  | "FINANCIAL_GROWTH"
+  | "FINANCIAL_CONTRACTION"
+  | "LEGAL_CHANGE"
+  | "NEWS";
+
+export interface CompanyBusinessTrigger {
+  id: string;
+  type: CompanyBusinessTriggerType;
+  label: string;
+  description: string;
+  direction: "positive" | "neutral" | "negative";
+  strength: number;
+  confidence: number;
+  occurredAt?: string;
+  source: SourceEvidence;
+  url?: string;
+}
+
 export interface CompanyEnrichment {
   web?: CompanyWebIntelligence;
   news: CompanyNewsItem[];
   geo?: CompanyGeoIntelligence;
   legalEvents: CompanyLegalEvent[];
+  procurementAwards?: CompanyProcurementAward[];
+  hiring?: CompanyHiringIntelligence;
   evidence: SourceEvidence[];
 }
 
