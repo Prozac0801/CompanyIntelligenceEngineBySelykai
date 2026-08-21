@@ -16,6 +16,8 @@ import {
 import { verifyCompanyWebsite } from "@/lib/providers/direct-web";
 import { createFact } from "./facts";
 
+type WebsiteVerificationResult = Awaited<ReturnType<typeof verifyCompanyWebsite>>;
+
 function mergeUnique(...values: Array<string[] | undefined>): string[] {
   return Array.from(new Set(values.flatMap((items) => items || []).filter(Boolean)));
 }
@@ -47,9 +49,8 @@ export function mergeWebIntelligence(
   const firstPartyDomain = cleanDomain(firstParty?.domain || firstParty?.websiteUrl);
   const serpCorroboratesHunter = Boolean(hunterDomain && serpDomain && hunterDomain === serpDomain);
   const firstPartyVerified = Boolean(firstParty?.domainVerified && firstPartyDomain);
-  const firstPartyCorroboratesHunter = Boolean(firstPartyVerified && hunterDomain && firstPartyDomain === hunterDomain);
   const domainVerified = Boolean(
-    firstPartyVerified && (!hunterDomain || firstPartyDomain === hunterDomain)
+    (firstPartyVerified && (!hunterDomain || firstPartyDomain === hunterDomain))
       || serpCorroboratesHunter,
   );
   const domain = hunterDomain || firstPartyDomain || serpDomain;
@@ -98,14 +99,16 @@ export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnr
     domain ? getHunterCompanyIntelligence(domain) : Promise.resolve(null),
     getSerpWebIntelligence(company.name, domain),
     newsPromise,
-    domain ? verifyCompanyWebsite(company.name, domain) : Promise.resolve({}),
+    domain
+      ? verifyCompanyWebsite(company.name, domain)
+      : Promise.resolve({} as WebsiteVerificationResult),
   ]);
 
   const fallbackDomain = domain || serpResult.web?.domain;
   const hunterResult =
     initialHunter ||
     (fallbackDomain ? await getHunterCompanyIntelligence(fallbackDomain) : null);
-  const firstPartyResult = initialFirstParty.web || !fallbackDomain
+  const firstPartyResult: WebsiteVerificationResult = initialFirstParty.web || initialFirstParty.evidence || !fallbackDomain
     ? initialFirstParty
     : await verifyCompanyWebsite(company.name, fallbackDomain);
 
