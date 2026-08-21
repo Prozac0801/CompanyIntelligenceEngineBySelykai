@@ -1,4 +1,4 @@
--- Selykai Company Intelligence Engine — cumulative PostgreSQL schema v0.4
+-- Selykai Company Intelligence Engine — cumulative PostgreSQL schema v0.5
 -- Source of truth for the dedicated Neon database.
 -- FACT != INFERENCE: source facts, detected events and inferred signals are stored separately.
 
@@ -255,6 +255,7 @@ VALUES
   ('recherche-entreprises', 'API Recherche d''entreprises', 'official', 'https://recherche-entreprises.api.gouv.fr', true),
   ('inpi-rne', 'INPI / RNE', 'official', 'https://data.inpi.fr', false),
   ('bodacc', 'BODACC / DILA', 'official', 'https://bodacc-datadila.opendatasoft.com', true),
+  ('boamp', 'BOAMP / DILA', 'official', 'https://boamp-datadila.opendatasoft.com', true),
   ('apilayer', 'APILayer', 'commercial', 'https://apilayer.com', false),
   ('hunter', 'Hunter', 'commercial', 'https://hunter.io', false),
   ('selykai-engine', 'Selykai Intelligence Engine', 'inference', NULL, true)
