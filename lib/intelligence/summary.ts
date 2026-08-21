@@ -7,9 +7,16 @@ import type {
 } from "@/types/company";
 import type { CompanySignal } from "@/types/intelligence";
 import { activityLabel, employeeBandLabel } from "./labels";
+import {
+  hasRecentCriticalLegalEvent,
+  isCommercialMomentumLegalEvent,
+  isRecentLegalEvent,
+} from "./legal-events";
 
 function numberValue(value: unknown): number | undefined {
-  const parsed = Number(value);
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value.replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
@@ -33,7 +40,7 @@ export function financialInsight(raw: unknown): CompanyFinancialInsight {
   const netIncome = numberValue(latestData.resultat_net ?? latestData.resultat);
   const previousRevenue = previousData ? numberValue(previousData.ca ?? previousData.chiffre_affaires) : undefined;
   const previousNetIncome = previousData ? numberValue(previousData.resultat_net ?? previousData.resultat) : undefined;
-  const netMarginPercent = revenue && netIncome !== undefined ? (netIncome / revenue) * 100 : undefined;
+  const netMarginPercent = revenue !== undefined && revenue !== 0 && netIncome !== undefined ? (netIncome / revenue) * 100 : undefined;
   const revenueGrowthPercent = pct(revenue, previousRevenue);
   const netIncomeGrowthPercent = pct(netIncome, previousNetIncome);
   const notes: string[] = [];
@@ -43,6 +50,7 @@ export function financialInsight(raw: unknown): CompanyFinancialInsight {
   else if (netMarginPercent !== undefined && netMarginPercent < 3) notes.push(`Marge nette modérée (${netMarginPercent.toFixed(2)} %)`);
   else if (netMarginPercent !== undefined) notes.push(`Marge nette observée : ${netMarginPercent.toFixed(2)} %`);
   if (revenueGrowthPercent !== undefined) notes.push(`Évolution du CA : ${revenueGrowthPercent >= 0 ? "+" : ""}${revenueGrowthPercent.toFixed(1)} %`);
+  if (revenue === undefined && netIncome === undefined) notes.push("Montants financiers non renseignés sur le dernier exercice retourné");
 
   const assessment: CompanyFinancialInsight["assessment"] =
     netIncome !== undefined && netIncome < 0
@@ -90,20 +98,23 @@ export function buildCompanyIntelligenceSummary(input: {
   if (enrichment.web?.domain) strengths.push(`Présence digitale identifiable sur ${enrichment.web.domain}`);
   if (enrichment.web?.technologies.length) strengths.push(`${enrichment.web.technologies.length} technologies web détectées`);
 
+  if (company.status === "closed") vigilance.push("Entreprise administrativement fermée");
   vigilance.push(...financial.notes.filter((note) => /faible|négatif|modérée/i.test(note)));
-  const legalCritical = enrichment.legalEvents.filter((event) => event.risk === "critical");
-  const legalWarning = enrichment.legalEvents.filter((event) => event.risk === "warning");
-  if (legalCritical.length) vigilance.push(`${legalCritical.length} événement(s) BODACC critique(s) à examiner`);
-  if (legalWarning.length) vigilance.push(`${legalWarning.length} événement(s) juridique(s) à surveiller`);
+  const legalCritical = enrichment.legalEvents.filter(
+    (event) => event.risk === "critical" && isRecentLegalEvent(event, 365),
+  );
+  const legalWarning = enrichment.legalEvents.filter(
+    (event) => event.risk === "warning" && isRecentLegalEvent(event, 365),
+  );
+  if (legalCritical.length) vigilance.push(`${legalCritical.length} procédure(s) BODACC critique(s) récente(s) à examiner avant toute action`);
+  if (legalWarning.length) vigilance.push(`${legalWarning.length} événement(s) juridique(s) récent(s) à surveiller`);
   if (!vigilance.length) vigilance.push("Aucun signal de vigilance majeur détecté dans les sources couvertes");
 
-  const now = Date.now();
-  const recentLegal = enrichment.legalEvents.filter((event) => {
-    const date = new Date(event.date).getTime();
-    return Number.isFinite(date) && now - date <= 180 * 24 * 60 * 60 * 1000;
-  });
-  for (const event of recentLegal.slice(0, 3)) triggers.push(`${event.family} · ${new Date(event.date).toLocaleDateString("fr-FR")}`);
-  for (const signal of signals.slice(0, 2)) triggers.push(signal.label);
+  const legalTriggers = enrichment.legalEvents.filter((event) => isCommercialMomentumLegalEvent(event));
+  for (const event of legalTriggers.slice(0, 3)) {
+    triggers.push(`${event.family} · ${new Date(event.date).toLocaleDateString("fr-FR")}`);
+  }
+  for (const signal of signals.filter((signal) => signal.type !== "LEGAL_RISK").slice(0, 2)) triggers.push(signal.label);
   if (enrichment.news.length) triggers.push(`${enrichment.news.length} actualité(s) pertinente(s) récente(s)`);
 
   const headlineParts = [activity, size, open > 1 ? `${open} établissements actifs` : undefined].filter(Boolean);
@@ -111,11 +122,16 @@ export function buildCompanyIntelligenceSummary(input: {
     ? `${company.name} — ${headlineParts.join(" · ")}`
     : `${company.name} — profil entreprise consolidé`;
 
-  const nextBestAction = score.opportunity.status === "triggered"
-    ? "Prioriser une qualification commerciale maintenant et vérifier le déclencheur avant prise de contact."
-    : score.opportunity.status === "watch"
-      ? "Placer l’entreprise sous surveillance et déclencher une action sur nouvel établissement, recrutement, événement BODACC ou actualité forte."
-      : "Compléter les données temporelles avant de prioriser une action commerciale.";
+  const recentCritical = hasRecentCriticalLegalEvent(enrichment.legalEvents);
+  const nextBestAction = recentCritical
+    ? "Suspendre la priorisation commerciale et examiner la procédure BODACC critique récente avant toute prise de contact."
+    : company.status === "closed"
+      ? "Ne pas prioriser commercialement cette entité tant que son statut administratif reste fermé."
+      : score.opportunity.status === "triggered"
+        ? "Prioriser une qualification commerciale maintenant et vérifier le déclencheur avant prise de contact."
+        : score.opportunity.status === "watch"
+          ? "Placer l’entreprise sous surveillance et déclencher une action sur nouvel établissement, recrutement, modification BODACC pertinente ou actualité forte."
+          : "Compléter les données temporelles avant de prioriser une action commerciale.";
 
   return {
     headline,
