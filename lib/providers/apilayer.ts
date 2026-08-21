@@ -74,9 +74,6 @@ async function apilayerGet<T>(
   const key = process.env.APILAYER_API_KEY?.trim();
   if (!key) return null;
 
-  // The current APILayer Marketplace authenticates with the `apikey` header,
-  // while migrated Suite products still document `access_key` on legacy product hosts.
-  // Prefer the current header mode, then retry once with the legacy query mode on auth failure.
   let response = await apilayerRequest(baseUrl, params, operation, key, "apikey_header");
   if (response && (response.status === 401 || response.status === 403)) {
     response = await apilayerRequest(baseUrl, params, operation, key, "access_key_query");
@@ -90,14 +87,18 @@ async function apilayerGet<T>(
   }
 }
 
+interface SerpResult {
+  position?: number;
+  title?: string;
+  url?: string;
+  domain?: string;
+  snippet?: string;
+}
+
 interface SerpResponse {
-  organic_results?: Array<{
-    position?: number;
-    title?: string;
-    url?: string;
-    domain?: string;
-    snippet?: string;
-  }>;
+  organic_results?: SerpResult[];
+  success?: boolean;
+  error?: unknown;
 }
 
 const NON_OFFICIAL_DOMAINS = [
@@ -127,45 +128,87 @@ function candidateIsOfficial(domain?: string): boolean {
   return !NON_OFFICIAL_DOMAINS.some((blocked) => clean === blocked || clean.endsWith(`.${blocked}`));
 }
 
+function significantTokens(name: string): string[] {
+  return name
+    .toLocaleLowerCase("fr-FR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 4 && !["sas", "sarl", "groupe", "france", "holding"].includes(token));
+}
+
+function resultMatchesCompany(result: SerpResult, companyName: string): boolean {
+  const haystack = `${result.title || ""} ${result.snippet || ""}`
+    .toLocaleLowerCase("fr-FR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const tokens = significantTokens(companyName);
+  if (!tokens.length) return false;
+  return tokens.some((token) => haystack.includes(token));
+}
+
+function linkedInHandle(result: SerpResult): string | undefined {
+  if (cleanDomain(result.domain || result.url) !== "linkedin.com" || !result.url) return undefined;
+  try {
+    const pathname = new URL(result.url).pathname.replace(/^\/+|\/+$/g, "");
+    return pathname.startsWith("company/") ? pathname : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function validSerpResponse(value?: SerpResponse | null): value is SerpResponse {
+  return Boolean(value && !value.error && value.success !== false && Array.isArray(value.organic_results));
+}
+
 export async function getSerpWebIntelligence(
   companyName: string,
   preferredDomain?: string,
 ): Promise<{ web?: Partial<CompanyWebIntelligence>; evidence?: SourceEvidence }> {
   if (!isApiLayerProviderConfigured()) return {};
-  const cacheKey = `apilayer:serp:${companyName.trim().toLowerCase()}`;
+  const cacheKey = `apilayer:serp:v2:${companyName.trim().toLowerCase()}`;
   const cached = await readProviderCache<SerpResponse>(cacheKey);
-  const response =
-    cached ||
-    (await apilayerGet<SerpResponse>(
+  const response = validSerpResponse(cached)
+    ? cached
+    : await apilayerGet<SerpResponse>(
       "https://api.serpstack.com/search",
       { query: `\"${companyName}\"`, type: "web", gl: "fr", num: "10" },
       "serp_company_presence",
-    ));
-  if (!response) return {};
-  if (!cached) await writeProviderCache("apilayer", cacheKey, response, 60 * 60 * 24 * 7);
+    );
+  if (!validSerpResponse(response)) return {};
+  if (!validSerpResponse(cached)) await writeProviderCache("apilayer", cacheKey, response, 60 * 60 * 24 * 7);
 
   const preferred = cleanDomain(preferredDomain);
   const candidates = response.organic_results || [];
   const result =
     (preferred
-      ? candidates.find((item) => cleanDomain(item.domain || item.url) === preferred)
+      ? candidates.find((item) => cleanDomain(item.domain || item.url) === preferred && resultMatchesCompany(item, companyName))
       : undefined) ||
-    candidates.find((item) => candidateIsOfficial(item.domain || item.url));
+    candidates.find((item) => candidateIsOfficial(item.domain || item.url) && resultMatchesCompany(item, companyName));
+  const linkedin = candidates.find((item) => linkedInHandle(item) && resultMatchesCompany(item, companyName));
+  const linkedinCompanyHandle = linkedin ? linkedInHandle(linkedin) : undefined;
 
-  if (!result) return { evidence: evidence("https://apilayer.com/products/serpstack/", 0.72) };
-  const domain = cleanDomain(result.domain || result.url);
+  if (!result && !linkedinCompanyHandle) {
+    return { evidence: evidence("https://apilayer.com/products/serpstack/", 0.68) };
+  }
+  const domain = result ? cleanDomain(result.domain || result.url) : undefined;
 
   return {
     web: {
       domain,
-      websiteUrl: result.url,
-      serpPosition: result.position,
-      serpSnippet: result.snippet,
+      websiteUrl: result?.url,
+      serpPosition: result?.position,
+      serpSnippet: result?.snippet,
+      linkedinHandle: linkedinCompanyHandle,
       technologies: [],
       phoneNumbers: [],
       genericEmails: [],
     },
-    evidence: evidence("https://apilayer.com/products/serpstack/", preferred && domain === preferred ? 0.9 : 0.72),
+    evidence: evidence(
+      "https://apilayer.com/products/serpstack/",
+      preferred && domain === preferred ? 0.92 : result ? 0.78 : 0.72,
+    ),
   };
 }
 
@@ -178,14 +221,8 @@ interface MediaStackResponse {
     language?: string;
     published_at?: string;
   }>;
-}
-
-function significantTokens(name: string): string[] {
-  return name
-    .toLocaleLowerCase("fr-FR")
-    .replace(/[^a-zà-ÿ0-9 ]/gi, " ")
-    .split(/\s+/)
-    .filter((token) => token.length >= 4 && !["sas", "sarl", "groupe", "france", "holding"].includes(token));
+  success?: boolean;
+  error?: unknown;
 }
 
 function relevantArticle(item: NonNullable<MediaStackResponse["data"]>[number], companyName: string): boolean {
@@ -196,23 +233,27 @@ function relevantArticle(item: NonNullable<MediaStackResponse["data"]>[number], 
   return tokens.length === 1 ? matches === 1 : matches >= Math.min(2, tokens.length);
 }
 
+function validMediaStackResponse(value?: MediaStackResponse | null): value is MediaStackResponse {
+  return Boolean(value && !value.error && value.success !== false && Array.isArray(value.data));
+}
+
 export async function getCompanyNews(
   companyName: string,
 ): Promise<{ news: CompanyNewsItem[]; evidence?: SourceEvidence }> {
   if (!isApiLayerProviderConfigured()) return { news: [] };
-  const cacheKey = `apilayer:news:${companyName.trim().toLowerCase()}`;
+  const cacheKey = `apilayer:news:v2:${companyName.trim().toLowerCase()}`;
   const cached = await readProviderCache<MediaStackResponse>(cacheKey);
-  const response =
-    cached ||
-    (await apilayerGet<MediaStackResponse>(
+  const response = validMediaStackResponse(cached)
+    ? cached
+    : await apilayerGet<MediaStackResponse>(
       "https://api.mediastack.com/v1/news",
       { keywords: companyName, languages: "fr,en", sort: "published_desc", limit: "10" },
       "company_news",
-    ));
-  if (!response) return { news: [] };
-  if (!cached) await writeProviderCache("apilayer", cacheKey, response, 60 * 60 * 6);
+    );
+  if (!validMediaStackResponse(response)) return { news: [] };
+  if (!validMediaStackResponse(cached)) await writeProviderCache("apilayer", cacheKey, response, 60 * 60 * 6);
 
-  const news = (response.data || [])
+  const news = response.data
     .filter((item) => item.url && item.title && relevantArticle(item, companyName))
     .slice(0, 6)
     .map((item) => ({
