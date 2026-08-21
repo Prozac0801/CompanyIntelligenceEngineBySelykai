@@ -13,6 +13,7 @@ import { inferSignals } from "@/lib/intelligence/signals";
 import { buildCompanyIntelligenceSummary } from "@/lib/intelligence/summary";
 import { loadOpportunityBenchmark } from "@/lib/persistence/benchmark-repository";
 import { loadLatestFacts, persistCompanyAnalysis } from "@/lib/persistence/company-repository";
+import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 import type { CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
 
@@ -80,10 +81,10 @@ export async function analyzeCompany(
   }
 
   const summary = buildCompanyIntelligenceSummary({ company, enrichment, score, signals });
-  const shouldPersist = options.persist ?? process.env.VERCEL_ENV !== "preview";
+  const shouldPersist = options.persist ?? canWriteRuntimeState();
 
   let persisted = false;
-  if (databaseConfigured && shouldPersist) {
+  if (databaseConfigured && shouldPersist && canWriteRuntimeState()) {
     persisted = await persistCompanyAnalysis({ company, enrichment, facts, events, signals, score });
   }
 
