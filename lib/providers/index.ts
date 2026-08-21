@@ -3,7 +3,9 @@ export type { CompanySearchResponse } from "./recherche-entreprises";
 export {
   commercialReuseDecision,
   getInpiRneFacts,
+  getInpiRneSupplement,
   isInpiRneConfigured,
+  normalizeInpiEstablishments,
 } from "./inpi-rne";
 export {
   geocodeCompanyAddress,
