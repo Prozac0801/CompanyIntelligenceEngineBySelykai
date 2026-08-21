@@ -31,7 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-bottom">
           <div className="engine-state">
             <Activity size={17} />
-            <div><strong>Engine V0.4</strong><span>official · legal · web · commercial</span></div>
+            <div><strong>Engine V0.4.1</strong><span>official · corroborated web · legal</span></div>
           </div>
           <div className="side-footer"><Settings2 size={15} /> facts · triggers · risk · confidence</div>
         </div>
