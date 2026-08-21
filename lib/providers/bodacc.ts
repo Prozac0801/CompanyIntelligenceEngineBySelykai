@@ -63,11 +63,42 @@ function compactText(value: unknown): string | undefined {
   return values.join(" · ").slice(0, 420) || undefined;
 }
 
-function riskForFamily(code?: string, label?: string): CompanyLegalEvent["risk"] {
-  const value = `${code || ""} ${label || ""}`.toLocaleLowerCase("fr-FR");
-  if (value.includes("collective") || value.includes("procédure collective") || value.includes("liquidation")) return "critical";
-  if (value.includes("conciliation") || value.includes("radiation")) return "warning";
-  if (value.includes("création") || value.includes("creation") || value.includes("immatriculation")) return "positive";
+function normalizedText(...parts: Array<string | undefined>): string {
+  return parts
+    .filter(Boolean)
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("fr-FR");
+}
+
+export function classifyBodaccRisk(input: {
+  code?: string;
+  label?: string;
+  type?: string;
+  detail?: string;
+}): CompanyLegalEvent["risk"] {
+  const value = normalizedText(input.code, input.label, input.type, input.detail);
+
+  if (/creation|immatriculation|etablissement principal|nouvel etablissement/.test(value)) return "positive";
+  if (/radiation|conciliation/.test(value)) return "warning";
+
+  if (/collective|procedure collective|jugement/.test(value)) {
+    if (
+      /ouverture.*(liquidation|redressement|sauvegarde)|liquidation judiciaire|redressement judiciaire|conversion.*liquidation|cessation des paiements|traitement de sortie de crise/.test(value)
+    ) {
+      return "critical";
+    }
+    if (
+      /cloture|plan de sauvegarde|plan de redressement|continuation|cession|fin de procedure|extinction|reprise de la procedure/.test(value)
+    ) {
+      return "warning";
+    }
+    // A "procédures collectives" family contains both openings and closures.
+    // Without a precise judgment nature, do not promote it to critical.
+    return "warning";
+  }
+
   return "neutral";
 }
 
@@ -82,11 +113,16 @@ function normalize(record: BodaccRecord): CompanyLegalEvent | null {
     date: record.dateparution,
     family,
     familyCode: record.familleavis,
-    title: family,
+    title: record.typeavis_lib || family,
     description: detail || record.typeavis_lib || undefined,
     url: record.url_complete,
     city: record.ville,
-    risk: riskForFamily(record.familleavis, family),
+    risk: classifyBodaccRisk({
+      code: record.familleavis,
+      label: family,
+      type: record.typeavis_lib,
+      detail,
+    }),
   };
 }
 
