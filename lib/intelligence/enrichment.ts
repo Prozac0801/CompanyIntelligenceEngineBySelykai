@@ -56,18 +56,20 @@ export function mergeWebIntelligence(
     domain,
     websiteUrl: domainVerified
       ? serp?.websiteUrl || hunter?.websiteUrl
-      : hunter?.websiteUrl || serp?.websiteUrl,
+      : serpDomain && !hunterDomain
+        ? serp?.websiteUrl
+        : hunter?.websiteUrl,
     description,
     industry: domainVerified ? hunter?.industry : undefined,
     sector: domainVerified ? hunter?.sector : undefined,
     employeeEstimate: domainVerified ? hunter?.employeeEstimate : undefined,
     trafficRank: domainVerified ? hunter?.trafficRank : undefined,
-    technologies: hunterDomain ? mergeUnique(hunter?.technologies) : [],
-    phoneNumbers: hunterDomain ? mergeUnique(hunter?.phoneNumbers) : [],
-    genericEmails: hunterDomain ? mergeUnique(hunter?.genericEmails) : [],
+    technologies: domainVerified ? mergeUnique(hunter?.technologies) : [],
+    phoneNumbers: domainVerified ? mergeUnique(hunter?.phoneNumbers) : [],
+    genericEmails: domainVerified ? mergeUnique(hunter?.genericEmails) : [],
     linkedinHandle: linkedinVerified ? hunterLinkedin : undefined,
     logoUrl: domainVerified ? hunter?.logoUrl : undefined,
-    serpPosition: serp?.serpPosition,
+    serpPosition: domainVerified || (!hunterDomain && serpDomain) ? serp?.serpPosition : undefined,
     serpSnippet: canUseSerpCopy ? serp?.serpSnippet : undefined,
     domainVerified,
     linkedinVerified,
