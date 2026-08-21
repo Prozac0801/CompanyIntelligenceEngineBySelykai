@@ -10,9 +10,10 @@ import {
 
 const CACHE_TTL_SECONDS = 60 * 60 * 24;
 const MAX_CAREER_PAGES = 4;
+const MAX_ATS_PAGES = 2;
 const CAREER_HINT = /carri[eè]re|career|recrut|nous[-_ ]?rejoindre|join[-_ ]?us|emploi|jobs?/i;
 const INTERNAL_JOB_PATH = /\/(job|jobs|offre|offres|emploi|emplois|poste|postes|position|positions|vacanc|recrutement)(\/|[-_?]|$)/i;
-const GENERIC_CAREER_TEXT = /^(carri[eè]res?|careers?|recrutement|nous rejoindre|join us|emplois?|jobs?)$/i;
+const GENERIC_CAREER_TEXT = /^(carri[eè]res?|careers?|recrutement|nous rejoindre|join us|emplois?|jobs?|offres? d['’]emploi|voir toutes les offres)$/i;
 const ATS_HOSTS = [
   "smartrecruiters.com",
   "welcometothejungle.com",
@@ -24,6 +25,7 @@ const ATS_HOSTS = [
   "recruitee.com",
   "flatchr.io",
   "hellowork.com",
+  "talentdetection.com",
   "talentview.io",
 ];
 const DEFAULT_PATHS = [
@@ -45,6 +47,12 @@ interface JobPostingCandidate {
   title?: string;
   datePosted?: string;
   validThrough?: string;
+}
+
+export interface HiringPageSnapshot {
+  activeOpeningCount?: number;
+  jobTitles: string[];
+  latestPostedAt?: string;
 }
 
 function normalizeText(value: string): string {
@@ -113,10 +121,23 @@ export function parseJobPostings(html: string, now = Date.now()): JobPostingCand
 }
 
 function explicitOpeningCount(text: string): number | undefined {
-  const match = /(\d{1,3})\s+(?:offres?\s+d['’]emploi|offres?|postes?|jobs?|opportunit[eé]s?)/i.exec(text);
-  if (!match) return undefined;
-  const value = Number(match[1]);
-  return Number.isFinite(value) && value > 0 && value <= 500 ? value : undefined;
+  const patterns = [
+    /(\d{1,3})\s+(?:offres?\s+d['’]emploi|offres?|postes?|jobs?|opportunit[eé]s?)/i,
+    /(?:offres?\s+d['’]emploi|offres?|postes?|jobs?|opportunit[eé]s?)\s*[:·-]?\s*(\d{1,3})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isFinite(value) && value > 0 && value <= 500) return value;
+  }
+  return undefined;
+}
+
+function probableJobTitle(value: string): boolean {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length < 8 || text.length > 160 || GENERIC_CAREER_TEXT.test(text)) return false;
+  return /\b(h\s*\/\s*f|f\s*\/\s*h|technicien|ing[eé]nieur|responsable|charg[eé]|comptable|chef|commercial|op[eé]rateur|d[eé]veloppeur|manager|assistant|coordinateur|consultant|alternance|stage)\b/i.test(text);
 }
 
 function jobLinks(html: string, baseUrl: string): string[] {
@@ -148,6 +169,22 @@ function discoveredCareerUrls(html: string, baseUrl: string, domain: string): st
   return values;
 }
 
+function discoveredTrustedAtsUrls(html: string, baseUrl: string): string[] {
+  const values: string[] = [];
+  for (const link of extractHtmlLinks(html, baseUrl)) {
+    try {
+      const url = new URL(link.href);
+      if (!isAtsHost(url.hostname)) continue;
+      if (!CAREER_HINT.test(`${url.pathname} ${url.search} ${link.text}`)) continue;
+      if (!values.includes(url.toString())) values.push(url.toString());
+      if (values.length >= MAX_ATS_PAGES) break;
+    } catch {
+      // Ignore malformed ATS links.
+    }
+  }
+  return values;
+}
+
 function latestDate(values: Array<string | undefined>): string | undefined {
   const valid = values
     .filter((value): value is string => Boolean(value))
@@ -155,6 +192,46 @@ function latestDate(values: Array<string | undefined>): string | undefined {
     .filter((entry) => Number.isFinite(entry.time))
     .sort((a, b) => b.time - a.time);
   return valid[0]?.value;
+}
+
+export function parseHiringPageSnapshot(html: string, baseUrl: string, now = Date.now()): HiringPageSnapshot {
+  const structuredJobs = parseJobPostings(html, now);
+  const visible = htmlVisibleText(html);
+  const explicitCount = explicitOpeningCount(visible);
+  const links = extractHtmlLinks(html, baseUrl);
+  const jobTitles = Array.from(new Set([
+    ...structuredJobs.map((job) => job.title?.replace(/\s+/g, " ").trim()).filter((title): title is string => Boolean(title)),
+    ...links.map((link) => link.text.replace(/\s+/g, " ").trim()).filter(probableJobTitle),
+  ])).slice(0, 12);
+  const linkedJobs = jobLinks(html, baseUrl).length;
+  const activeOpeningCount = structuredJobs.length || explicitCount || (linkedJobs >= 2 ? linkedJobs : undefined);
+  return {
+    activeOpeningCount,
+    jobTitles,
+    latestPostedAt: latestDate(structuredJobs.map((job) => job.datePosted)),
+  };
+}
+
+async function verifiedAtsSnapshot(
+  companyName: string,
+  url: string,
+): Promise<{ snapshot: HiringPageSnapshot; url: string } | null> {
+  let atsDomain: string | undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || !isAtsHost(parsed.hostname)) return null;
+    atsDomain = cleanFirstPartyDomain(parsed.hostname);
+  } catch {
+    return null;
+  }
+  if (!atsDomain) return null;
+
+  const page = await fetchSafeFirstPartyPage(atsDomain, url);
+  if (!page) return null;
+  const visible = htmlVisibleText(page.html);
+  if (!pageMatchesCompany(companyName, visible.slice(0, 120_000))) return null;
+  const snapshot = parseHiringPageSnapshot(page.html, page.url);
+  return snapshot.activeOpeningCount ? { snapshot, url: page.url } : null;
 }
 
 function evidence(sourceUrl: string | undefined, confidence: number, observedAt: string): SourceEvidence {
@@ -174,7 +251,7 @@ export async function getFirstPartyHiringIntelligence(
 ): Promise<{ hiring?: CompanyHiringIntelligence; evidence?: SourceEvidence }> {
   const domain = cleanFirstPartyDomain(candidateDomain);
   if (!domain) return {};
-  const cacheKey = `careers:v1:${domain}`;
+  const cacheKey = `careers:v2:${domain}`;
   const cached = await readProviderCache<CachedHiringResult>(cacheKey);
   if (cached?.hiring) {
     return {
@@ -189,9 +266,9 @@ export async function getFirstPartyHiringIntelligence(
   const homeVisible = htmlVisibleText(home.html);
   if (!pageMatchesCompany(companyName, homeVisible.slice(0, 100_000))) return {};
 
-  const homeJobs = parseJobPostings(home.html);
-  const homeJobLinks = jobLinks(home.html, home.url);
+  const homeSnapshot = parseHiringPageSnapshot(home.html, home.url);
   const candidateUrls = discoveredCareerUrls(home.html, home.url, domain);
+  const trustedAtsUrls = discoveredTrustedAtsUrls(home.html, home.url);
   for (const path of DEFAULT_PATHS) {
     if (candidateUrls.length >= MAX_CAREER_PAGES) break;
     const url = new URL(path, home.url).toString();
@@ -199,27 +276,61 @@ export async function getFirstPartyHiringIntelligence(
   }
 
   let careersUrl: string | undefined;
-  const structuredJobs = [...homeJobs];
-  const discoveredJobLinks = new Set(homeJobLinks);
-  let pageOpeningCount: number | undefined = explicitOpeningCount(homeVisible);
+  const structuredJobs = [...parseJobPostings(home.html)];
+  const discoveredJobLinks = new Set(jobLinks(home.html, home.url));
+  let pageOpeningCount: number | undefined = homeSnapshot.activeOpeningCount;
+  const firstPartyTitles = new Set(homeSnapshot.jobTitles);
 
   for (const url of candidateUrls.slice(0, MAX_CAREER_PAGES)) {
     const page = await fetchSafeFirstPartyPage(domain, url);
     if (!page) continue;
     const visible = htmlVisibleText(page.html);
     const pageLooksCareer = CAREER_HINT.test(`${page.url} ${visible.slice(0, 12_000)}`);
+    const snapshot = parseHiringPageSnapshot(page.html, page.url);
     const pageJobs = parseJobPostings(page.html);
     const pageLinks = jobLinks(page.html, page.url);
-    if (!pageLooksCareer && pageJobs.length === 0 && pageLinks.length === 0) continue;
+    if (!pageLooksCareer && !snapshot.activeOpeningCount && pageLinks.length === 0) continue;
     careersUrl ||= page.url;
     structuredJobs.push(...pageJobs);
     pageLinks.forEach((link) => discoveredJobLinks.add(link));
-    pageOpeningCount = Math.max(pageOpeningCount || 0, explicitOpeningCount(visible) || 0) || undefined;
+    snapshot.jobTitles.forEach((title) => firstPartyTitles.add(title));
+    pageOpeningCount = Math.max(pageOpeningCount || 0, snapshot.activeOpeningCount || 0) || undefined;
+    for (const atsUrl of discoveredTrustedAtsUrls(page.html, page.url)) {
+      if (!trustedAtsUrls.includes(atsUrl) && trustedAtsUrls.length < MAX_ATS_PAGES) trustedAtsUrls.push(atsUrl);
+    }
   }
 
-  const uniqueTitles = Array.from(new Set(
-    structuredJobs.map((job) => job.title?.replace(/\s+/g, " ").trim()).filter((title): title is string => Boolean(title)),
-  )).slice(0, 12);
+  let atsResult: Awaited<ReturnType<typeof verifiedAtsSnapshot>> = null;
+  for (const url of trustedAtsUrls.slice(0, MAX_ATS_PAGES)) {
+    atsResult = await verifiedAtsSnapshot(companyName, url);
+    if (atsResult) break;
+  }
+
+  if (atsResult) {
+    const hiring: CompanyHiringIntelligence = {
+      checkedAt,
+      hiringDetected: true,
+      careersUrl: atsResult.url,
+      activeOpeningCount: atsResult.snapshot.activeOpeningCount,
+      jobTitles: atsResult.snapshot.jobTitles,
+      latestPostedAt: atsResult.snapshot.latestPostedAt,
+      method: "verified-ats",
+    };
+    await writeProviderCache("selykai-engine", cacheKey, {
+      hiring,
+      sourceUrl: atsResult.url,
+      evidenceConfidence: 0.96,
+    }, CACHE_TTL_SECONDS);
+    return {
+      hiring,
+      evidence: evidence(atsResult.url, 0.96, checkedAt),
+    };
+  }
+
+  const uniqueTitles = Array.from(new Set([
+    ...firstPartyTitles,
+    ...structuredJobs.map((job) => job.title?.replace(/\s+/g, " ").trim()).filter((title): title is string => Boolean(title)),
+  ])).slice(0, 12);
   const structuredCount = structuredJobs.length;
   const linkCount = discoveredJobLinks.size;
   const activeOpeningCount = structuredCount || pageOpeningCount || (linkCount >= 2 ? linkCount : undefined);
