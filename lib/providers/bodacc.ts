@@ -84,15 +84,15 @@ export function classifyBodaccRisk(input: {
   if (/radiation|conciliation/.test(value)) return "warning";
 
   if (/collective|procedure collective|jugement/.test(value)) {
-    if (
-      /ouverture.*(liquidation|redressement|sauvegarde)|liquidation judiciaire|redressement judiciaire|conversion.*liquidation|cessation des paiements|traitement de sortie de crise/.test(value)
-    ) {
-      return "critical";
+    // Resolved / plan states must win even when the text still contains
+    // "liquidation judiciaire" or "redressement judiciaire".
+    if (/cloture|plan de sauvegarde|plan de redressement|continuation|cession|fin de procedure|extinction/.test(value)) {
+      return "warning";
     }
     if (
-      /cloture|plan de sauvegarde|plan de redressement|continuation|cession|fin de procedure|extinction|reprise de la procedure/.test(value)
+      /ouverture.*(liquidation|redressement|sauvegarde)|liquidation judiciaire|redressement judiciaire|conversion.*liquidation|reprise.*liquidation|cessation des paiements|traitement de sortie de crise/.test(value)
     ) {
-      return "warning";
+      return "critical";
     }
     // A "procédures collectives" family contains both openings and closures.
     // Without a precise judgment nature, do not promote it to critical.
