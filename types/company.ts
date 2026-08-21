@@ -69,7 +69,7 @@ export interface CompanyWebIntelligence {
   serpSnippet?: string;
   domainVerified?: boolean;
   linkedinVerified?: boolean;
-  descriptionSource?: "serp" | "corroborated-hunter";
+  descriptionSource?: "serp" | "first-party-site" | "corroborated-hunter";
 }
 
 export interface CompanyNewsItem {

@@ -13,7 +13,10 @@ import {
   getHunterCompanyIntelligence,
   resolveHunterDomain,
 } from "@/lib/providers/hunter";
+import { verifyCompanyWebsite } from "@/lib/providers/direct-web";
 import { createFact } from "./facts";
+
+type WebsiteVerificationResult = Awaited<ReturnType<typeof verifyCompanyWebsite>>;
 
 function mergeUnique(...values: Array<string[] | undefined>): string[] {
   return Array.from(new Set(values.flatMap((items) => items || []).filter(Boolean)));
@@ -37,28 +40,38 @@ function cleanSocialHandle(value?: string): string | undefined {
 export function mergeWebIntelligence(
   hunter?: CompanyWebIntelligence,
   serp?: Partial<CompanyWebIntelligence>,
+  firstParty?: Partial<CompanyWebIntelligence>,
 ): CompanyWebIntelligence | undefined {
-  if (!hunter && !serp) return undefined;
+  if (!hunter && !serp && !firstParty) return undefined;
 
   const hunterDomain = cleanDomain(hunter?.domain || hunter?.websiteUrl);
   const serpDomain = cleanDomain(serp?.domain || serp?.websiteUrl);
-  const domainVerified = Boolean(hunterDomain && serpDomain && hunterDomain === serpDomain);
-  const domain = hunterDomain || serpDomain;
+  const firstPartyDomain = cleanDomain(firstParty?.domain || firstParty?.websiteUrl);
+  const serpCorroboratesHunter = Boolean(hunterDomain && serpDomain && hunterDomain === serpDomain);
+  const firstPartyVerified = Boolean(firstParty?.domainVerified && firstPartyDomain);
+  const domainVerified = Boolean(
+    (firstPartyVerified && (!hunterDomain || firstPartyDomain === hunterDomain))
+      || serpCorroboratesHunter,
+  );
+  const domain = hunterDomain || firstPartyDomain || serpDomain;
 
   const hunterLinkedin = cleanSocialHandle(hunter?.linkedinHandle);
   const serpLinkedin = cleanSocialHandle(serp?.linkedinHandle);
   const linkedinVerified = Boolean(hunterLinkedin && serpLinkedin && hunterLinkedin === serpLinkedin);
 
-  const canUseSerpCopy = Boolean(serp?.serpSnippet && serpDomain && (!hunterDomain || domainVerified));
-  const description = canUseSerpCopy ? serp?.serpSnippet : undefined;
+  const canUseFirstPartyCopy = Boolean(firstPartyVerified && firstParty?.description);
+  const canUseSerpCopy = Boolean(
+    serp?.serpSnippet
+      && serpDomain
+      && (serpCorroboratesHunter || (!hunterDomain && firstPartyVerified && serpDomain === firstPartyDomain)),
+  );
+  const description = canUseFirstPartyCopy ? firstParty?.description : canUseSerpCopy ? serp?.serpSnippet : undefined;
 
   return {
     domain,
     websiteUrl: domainVerified
-      ? serp?.websiteUrl || hunter?.websiteUrl
-      : serpDomain && !hunterDomain
-        ? serp?.websiteUrl
-        : hunter?.websiteUrl,
+      ? firstParty?.websiteUrl || serp?.websiteUrl || hunter?.websiteUrl
+      : hunter?.websiteUrl || serp?.websiteUrl || firstParty?.websiteUrl,
     description,
     industry: domainVerified ? hunter?.industry : undefined,
     sector: domainVerified ? hunter?.sector : undefined,
@@ -69,11 +82,11 @@ export function mergeWebIntelligence(
     genericEmails: domainVerified ? mergeUnique(hunter?.genericEmails) : [],
     linkedinHandle: linkedinVerified ? hunterLinkedin : undefined,
     logoUrl: domainVerified ? hunter?.logoUrl : undefined,
-    serpPosition: domainVerified || (!hunterDomain && serpDomain) ? serp?.serpPosition : undefined,
+    serpPosition: serpCorroboratesHunter || (!hunterDomain && domainVerified) ? serp?.serpPosition : undefined,
     serpSnippet: canUseSerpCopy ? serp?.serpSnippet : undefined,
     domainVerified,
     linkedinVerified,
-    descriptionSource: description ? "serp" : undefined,
+    descriptionSource: canUseFirstPartyCopy ? "first-party-site" : canUseSerpCopy ? "serp" : undefined,
   };
 }
 
@@ -82,25 +95,32 @@ export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnr
   const newsPromise = getCompanyNews(company.name);
 
   const domain = await domainPromise;
-  const [initialHunter, serpResult, newsResult] = await Promise.all([
+  const [initialHunter, serpResult, newsResult, initialFirstParty] = await Promise.all([
     domain ? getHunterCompanyIntelligence(domain) : Promise.resolve(null),
     getSerpWebIntelligence(company.name, domain),
     newsPromise,
+    domain
+      ? verifyCompanyWebsite(company.name, domain)
+      : Promise.resolve({} as WebsiteVerificationResult),
   ]);
 
   const fallbackDomain = domain || serpResult.web?.domain;
   const hunterResult =
     initialHunter ||
     (fallbackDomain ? await getHunterCompanyIntelligence(fallbackDomain) : null);
+  const firstPartyResult: WebsiteVerificationResult = initialFirstParty.web || initialFirstParty.evidence || !fallbackDomain
+    ? initialFirstParty
+    : await verifyCompanyWebsite(company.name, fallbackDomain);
 
   const evidence: SourceEvidence[] = [
     hunterResult?.evidence,
     serpResult.evidence,
+    firstPartyResult.evidence,
     newsResult.evidence,
   ].filter((item): item is SourceEvidence => Boolean(item));
 
   return {
-    web: mergeWebIntelligence(hunterResult?.web, serpResult.web),
+    web: mergeWebIntelligence(hunterResult?.web, serpResult.web, firstPartyResult.web),
     news: newsResult.news,
     legalEvents: [],
     evidence,
@@ -111,6 +131,10 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
   const facts: CompanyFact[] = [];
   const hunterEvidence = enrichment.evidence.find((item) => item.providerId === "hunter");
   const apiLayerEvidence = enrichment.evidence.find((item) => item.providerId === "apilayer");
+  const firstPartyEvidence = enrichment.evidence.find(
+    (item) => item.providerId === "selykai-engine" && item.provider === "Selykai Web Verification",
+  );
+  const corroborationEvidence = firstPartyEvidence || apiLayerEvidence;
   const web = enrichment.web;
 
   if (web && hunterEvidence) {
@@ -124,15 +148,18 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
       ["web", "web_technologies", web.technologies],
       ["commercial", "generic_email_count", web.genericEmails.length],
       ["commercial", "public_phone_count", web.phoneNumbers.length],
-      ["web", "web_domain_verified", Boolean(web.domainVerified)],
       ["web", "linkedin_verified", Boolean(web.linkedinVerified)],
     ];
     for (const [type, key, value] of hunterCandidates) facts.push(createFact(type, key, value, hunterEvidence));
   }
 
+  if (web && corroborationEvidence) {
+    facts.push(createFact("web", "web_domain_verified", Boolean(web.domainVerified), corroborationEvidence));
+    if (web.description) facts.push(createFact("web", "web_description", web.description, corroborationEvidence));
+  }
+
   if (web && apiLayerEvidence) {
     const serpCandidates: Array<[CompanyFact["type"], string, string | number | boolean | null | string[]]> = [
-      ["web", "web_description", web.description || null],
       ["web", "serp_position", web.serpPosition ?? null],
       ["web", "linkedin_handle", web.linkedinHandle || null],
     ];
