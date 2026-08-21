@@ -20,3 +20,5 @@ export {
   resolveHunterDomain,
 } from "./hunter";
 export { getBodaccEvents } from "./bodacc";
+export { getBoampAwards } from "./boamp";
+export { getFirstPartyHiringIntelligence, parseJobPostings } from "./careers";
