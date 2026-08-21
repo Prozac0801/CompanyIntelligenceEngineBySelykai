@@ -141,18 +141,19 @@ function evidence(observedAt: string): SourceEvidence {
   };
 }
 
-function isoDateDaysAgo(days: number): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+function isoDateDaysAgo(days: number, now = Date.now()): string {
+  return new Date(now - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function queryForCompany(companyName: string): string {
+export function buildBoampWhereClause(companyName: string, now = Date.now()): string {
   const escaped = companyName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `search(titulaire, "${escaped}") and dateparution >= "${isoDateDaysAgo(LOOKBACK_DAYS)}"`;
+  const since = isoDateDaysAgo(LOOKBACK_DAYS, now);
+  return `search(titulaire, "${escaped}") and dateparution >= date'${since}'`;
 }
 
 async function fetchBoamp(companyName: string): Promise<BoampResponse | null> {
   const url = new URL(BOAMP_ENDPOINT);
-  url.searchParams.set("where", queryForCompany(companyName));
+  url.searchParams.set("where", buildBoampWhereClause(companyName));
   url.searchParams.set("order_by", "dateparution desc");
   url.searchParams.set("limit", "25");
 
@@ -161,7 +162,7 @@ async function fetchBoamp(companyName: string): Promise<BoampResponse | null> {
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "SelykaiCompanyIntelligence/0.5 (+https://selykai.com)",
+        "User-Agent": "SelykaiCompanyIntelligence/0.5.2 (+https://selykai.com)",
       },
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
@@ -192,7 +193,7 @@ export async function getBoampAwards(
   siren: string,
 ): Promise<{ awards: CompanyProcurementAward[]; evidence?: SourceEvidence }> {
   if (!companyName.trim() || !/^\d{9}$/.test(siren)) return { awards: [] };
-  const cacheKey = `boamp:awards:v1:${siren}`;
+  const cacheKey = `boamp:awards:v2:${siren}`;
   const cached = await readProviderCache<CachedAwards>(cacheKey);
   if (cached?.checkedAt && Array.isArray(cached.awards)) {
     return { awards: cached.awards, evidence: evidence(cached.checkedAt) };
