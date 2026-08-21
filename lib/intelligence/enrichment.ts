@@ -19,26 +19,59 @@ function mergeUnique(...values: Array<string[] | undefined>): string[] {
   return Array.from(new Set(values.flatMap((items) => items || []).filter(Boolean)));
 }
 
-function mergeWeb(
+function cleanDomain(value?: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = value.includes("://") ? new URL(value) : new URL(`https://${value}`);
+    return url.hostname.replace(/^www\./, "").toLocaleLowerCase("fr-FR");
+  } catch {
+    return value.replace(/^www\./, "").toLocaleLowerCase("fr-FR");
+  }
+}
+
+function cleanSocialHandle(value?: string): string | undefined {
+  const normalized = value?.replace(/^https?:\/\/(www\.)?linkedin\.com\//i, "").replace(/^\/+|\/+$/g, "").toLowerCase();
+  return normalized || undefined;
+}
+
+export function mergeWebIntelligence(
   hunter?: CompanyWebIntelligence,
   serp?: Partial<CompanyWebIntelligence>,
 ): CompanyWebIntelligence | undefined {
   if (!hunter && !serp) return undefined;
+
+  const hunterDomain = cleanDomain(hunter?.domain || hunter?.websiteUrl);
+  const serpDomain = cleanDomain(serp?.domain || serp?.websiteUrl);
+  const domainVerified = Boolean(hunterDomain && serpDomain && hunterDomain === serpDomain);
+  const domain = hunterDomain || serpDomain;
+
+  const hunterLinkedin = cleanSocialHandle(hunter?.linkedinHandle);
+  const serpLinkedin = cleanSocialHandle(serp?.linkedinHandle);
+  const linkedinVerified = Boolean(hunterLinkedin && serpLinkedin && hunterLinkedin === serpLinkedin);
+
+  const canUseSerpCopy = Boolean(serp?.serpSnippet && serpDomain && (!hunterDomain || domainVerified));
+  const description = canUseSerpCopy ? serp?.serpSnippet : undefined;
+
   return {
-    domain: hunter?.domain || serp?.domain,
-    websiteUrl: hunter?.websiteUrl || serp?.websiteUrl,
-    description: hunter?.description || serp?.description,
-    industry: hunter?.industry || serp?.industry,
-    sector: hunter?.sector || serp?.sector,
-    employeeEstimate: hunter?.employeeEstimate || serp?.employeeEstimate,
-    trafficRank: hunter?.trafficRank || serp?.trafficRank,
-    technologies: mergeUnique(hunter?.technologies, serp?.technologies),
-    phoneNumbers: mergeUnique(hunter?.phoneNumbers, serp?.phoneNumbers),
-    genericEmails: mergeUnique(hunter?.genericEmails, serp?.genericEmails),
-    linkedinHandle: hunter?.linkedinHandle || serp?.linkedinHandle,
-    logoUrl: hunter?.logoUrl || serp?.logoUrl,
-    serpPosition: serp?.serpPosition ?? hunter?.serpPosition,
-    serpSnippet: serp?.serpSnippet || hunter?.serpSnippet,
+    domain,
+    websiteUrl: domainVerified
+      ? serp?.websiteUrl || hunter?.websiteUrl
+      : hunter?.websiteUrl || serp?.websiteUrl,
+    description,
+    industry: domainVerified ? hunter?.industry : undefined,
+    sector: domainVerified ? hunter?.sector : undefined,
+    employeeEstimate: domainVerified ? hunter?.employeeEstimate : undefined,
+    trafficRank: domainVerified ? hunter?.trafficRank : undefined,
+    technologies: hunterDomain ? mergeUnique(hunter?.technologies) : [],
+    phoneNumbers: hunterDomain ? mergeUnique(hunter?.phoneNumbers) : [],
+    genericEmails: hunterDomain ? mergeUnique(hunter?.genericEmails) : [],
+    linkedinHandle: linkedinVerified ? hunterLinkedin : undefined,
+    logoUrl: domainVerified ? hunter?.logoUrl : undefined,
+    serpPosition: serp?.serpPosition,
+    serpSnippet: canUseSerpCopy ? serp?.serpSnippet : undefined,
+    domainVerified,
+    linkedinVerified,
+    descriptionSource: description ? "serp" : undefined,
   };
 }
 
@@ -65,7 +98,7 @@ export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnr
   ].filter((item): item is SourceEvidence => Boolean(item));
 
   return {
-    web: mergeWeb(hunterResult?.web, serpResult.web),
+    web: mergeWebIntelligence(hunterResult?.web, serpResult.web),
     news: newsResult.news,
     legalEvents: [],
     evidence,
@@ -76,14 +109,12 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
   const facts: CompanyFact[] = [];
   const hunterEvidence = enrichment.evidence.find((item) => item.providerId === "hunter");
   const apiLayerEvidence = enrichment.evidence.find((item) => item.providerId === "apilayer");
-  const webEvidence = hunterEvidence || apiLayerEvidence;
   const web = enrichment.web;
 
-  if (web && webEvidence) {
-    const candidates: Array<[CompanyFact["type"], string, string | number | boolean | null | string[]]> = [
+  if (web && hunterEvidence) {
+    const hunterCandidates: Array<[CompanyFact["type"], string, string | number | boolean | null | string[]]> = [
       ["web", "web_domain", web.domain || null],
       ["web", "website_url", web.websiteUrl || null],
-      ["web", "web_description", web.description || null],
       ["web", "web_industry", web.industry || null],
       ["web", "web_sector", web.sector || null],
       ["workforce", "hunter_employee_estimate", web.employeeEstimate || null],
@@ -91,9 +122,19 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
       ["web", "web_technologies", web.technologies],
       ["commercial", "generic_email_count", web.genericEmails.length],
       ["commercial", "public_phone_count", web.phoneNumbers.length],
-      ["web", "serp_position", web.serpPosition ?? null],
+      ["web", "web_domain_verified", Boolean(web.domainVerified)],
+      ["web", "linkedin_verified", Boolean(web.linkedinVerified)],
     ];
-    for (const [type, key, value] of candidates) facts.push(createFact(type, key, value, webEvidence));
+    for (const [type, key, value] of hunterCandidates) facts.push(createFact(type, key, value, hunterEvidence));
+  }
+
+  if (web && apiLayerEvidence) {
+    const serpCandidates: Array<[CompanyFact["type"], string, string | number | boolean | null | string[]]> = [
+      ["web", "web_description", web.description || null],
+      ["web", "serp_position", web.serpPosition ?? null],
+      ["web", "linkedin_handle", web.linkedinHandle || null],
+    ];
+    for (const [type, key, value] of serpCandidates) facts.push(createFact(type, key, value, apiLayerEvidence));
   }
 
   if (apiLayerEvidence) {
