@@ -95,8 +95,8 @@ export function buildCompanyIntelligenceSummary(input: {
   if (company.status === "active") strengths.push("Entreprise administrativement active");
   if (size) strengths.push(`Structure ${size.toLocaleLowerCase("fr-FR")}`);
   if (open > 1) strengths.push(`Empreinte multi-sites : ${open} établissements ouverts`);
-  if (enrichment.web?.domain) strengths.push(`Présence digitale identifiable sur ${enrichment.web.domain}`);
-  if (enrichment.web?.technologies.length) strengths.push(`${enrichment.web.technologies.length} technologies web détectées`);
+  if (enrichment.web?.domainVerified && enrichment.web.domain) strengths.push(`Présence digitale recoupée sur ${enrichment.web.domain}`);
+  if (enrichment.web?.domainVerified && enrichment.web.technologies.length) strengths.push(`${enrichment.web.technologies.length} technologies web détectées sur le domaine recoupé`);
 
   if (company.status === "closed") vigilance.push("Entreprise administrativement fermée");
   vigilance.push(...financial.notes.filter((note) => /faible|négatif|modérée/i.test(note)));

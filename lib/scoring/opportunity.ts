@@ -181,21 +181,21 @@ function accessScore(input: ScoreInput): { subscore: ScoreSubscore; factors: Sco
   const factors: ScoreFactor[] = [];
   let value = 10;
 
-  if (web?.domain) {
+  if (web?.domainVerified && web.domain) {
     value += 25;
-    evidence.push(`Domaine identifié : ${web.domain}`);
-    factors.push(factor("access", "Domaine résolu", 25, web.domain));
+    evidence.push(`Domaine recoupé : ${web.domain}`);
+    factors.push(factor("access", "Domaine recoupé", 25, `${web.domain} confirmé par deux sources indépendantes`));
   }
-  if (web?.genericEmails.length) {
+  if (web?.domainVerified && web.genericEmails.length) {
     const points = Math.min(22, 10 + web.genericEmails.length * 4);
     value += points;
-    evidence.push(`${web.genericEmails.length} email(s) générique(s)`);
-    factors.push(factor("access", "Emails publics", points, `${web.genericEmails.length} adresse(s) générique(s) détectée(s)`));
+    evidence.push(`${web.genericEmails.length} email(s) générique(s) sur domaine recoupé`);
+    factors.push(factor("access", "Emails publics recoupés", points, `${web.genericEmails.length} adresse(s) rattachée(s) au domaine validé`));
   }
-  if (web?.phoneNumbers.length) {
+  if (web?.domainVerified && web.phoneNumbers.length) {
     const points = Math.min(18, 8 + web.phoneNumbers.length * 3);
     value += points;
-    evidence.push(`${web.phoneNumbers.length} téléphone(s) public(s)`);
+    evidence.push(`${web.phoneNumbers.length} téléphone(s) public(s) sur domaine recoupé`);
   }
   if (input.company.executives.length) {
     const points = Math.min(18, 6 + input.company.executives.length * 3);
@@ -203,9 +203,13 @@ function accessScore(input: ScoreInput): { subscore: ScoreSubscore; factors: Sco
     evidence.push(`${input.company.executives.length} dirigeant(s) public(s)`);
     factors.push(factor("access", "Gouvernance identifiable", points, `${input.company.executives.length} mandataire(s) public(s)`));
   }
-  if (web?.serpPosition) {
+  if (web?.domainVerified && web.serpPosition) {
     value += web.serpPosition <= 3 ? 10 : 5;
-    evidence.push(`Site retrouvé dans les résultats de recherche (#${web.serpPosition})`);
+    evidence.push(`Domaine recoupé retrouvé dans les résultats de recherche (#${web.serpPosition})`);
+  }
+
+  if (web?.domain && !web.domainVerified) {
+    evidence.push(`Domaine candidat non recoupé : ${web.domain} — aucun point commercial attribué`);
   }
 
   return {
@@ -214,7 +218,7 @@ function accessScore(input: ScoreInput): { subscore: ScoreSubscore; factors: Sco
       label: "Commercial Access",
       value: clamp(value),
       weight: 0.2,
-      confidence: confidenceForEvidence(evidence.length, 4),
+      confidence: confidenceForEvidence(evidence.filter((item) => !item.includes("non recoupé")).length, 4),
       status: "scored",
       evidence,
     },
@@ -302,8 +306,8 @@ export function computeOpportunityScore(input: ScoreInput): ExplainableScore {
     ["Données légales", input.company.evidence.length > 0],
     ["RNE", input.facts.some((fact) => fact.key === "rne_siren" && fact.value !== null)],
     ["BODACC", input.enrichment.evidence.some((item) => item.providerId === "bodacc")],
-    ["Web / SERP", Boolean(input.enrichment.web?.domain || input.enrichment.web?.websiteUrl)],
-    ["Firmographie web", Boolean(input.enrichment.web?.technologies.length || input.enrichment.web?.industry)],
+    ["Web / SERP recoupé", Boolean(input.enrichment.web?.domainVerified)],
+    ["Firmographie web recoupée", Boolean(input.enrichment.web?.domainVerified && (input.enrichment.web?.technologies.length || input.enrichment.web?.industry))],
     ["Actualités", input.enrichment.news.length > 0],
     ["Historique interne", input.events.length > 0 || input.signals.length > 0],
   ] as const;
@@ -363,7 +367,7 @@ export function computeOpportunityScore(input: ScoreInput): ExplainableScore {
     subscores: [fit.subscore, momentum.subscore, access.subscore, risk.subscore, confidenceSubscore],
     basis: {
       mode: "absolute-evidence",
-      description: "La V0.4 sépare attractivité, momentum, accessibilité, risque et qualité des données. Un score absent signifie données insuffisantes, pas une note moyenne.",
+      description: "La V0.4.1 sépare attractivité, momentum, accessibilité, risque et qualité des données, et ne valorise la présence web que lorsqu’elle est recoupée.",
       coveragePercent,
       evidenceFamilies: present,
       missingFamilies: missing,

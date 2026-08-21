@@ -67,6 +67,9 @@ export interface CompanyWebIntelligence {
   logoUrl?: string;
   serpPosition?: number;
   serpSnippet?: string;
+  domainVerified?: boolean;
+  linkedinVerified?: boolean;
+  descriptionSource?: "serp" | "corroborated-hunter";
 }
 
 export interface CompanyNewsItem {

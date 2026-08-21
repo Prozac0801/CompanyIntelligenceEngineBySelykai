@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { financialInsight } from "@/lib/intelligence/summary";
+import { mergeCompanyEstablishments } from "@/lib/intelligence/company-engine";
+import { mergeWebIntelligence } from "@/lib/intelligence/enrichment";
 import { computeOpportunityScore } from "@/lib/scoring/opportunity";
-import { classifyBodaccRisk } from "@/lib/providers/bodacc";
+import { classifyBodaccRisk, humanizeBodaccDetail } from "@/lib/providers/bodacc";
+import { normalizeInpiEstablishments } from "@/lib/providers/inpi-rne";
 import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 import type {
   CompanyEnrichment,
+  CompanyEstablishment,
   CompanyLegalEvent,
   CompanyProfile,
+  CompanyWebIntelligence,
   SourceEvidence,
 } from "@/types/company";
 import type { CompanyFact } from "@/types/intelligence";
@@ -57,6 +62,7 @@ function enrichment(legalEvents: CompanyLegalEvent[] = []): CompanyEnrichment {
       genericEmails: ["contact@anaveo.com"],
       phoneNumbers: [],
       serpPosition: 1,
+      domainVerified: true,
     },
     news: [],
     legalEvents,
@@ -105,6 +111,123 @@ describe("BODACC semantics", () => {
 
   it("classifies an immatriculation as positive", () => {
     expect(classifyBodaccRisk({ label: "Créations d'établissements", type: "Immatriculation" })).toBe("positive");
+  });
+
+  it("turns a stringified BODACC deposit payload into readable French", () => {
+    expect(humanizeBodaccDetail({
+      depot: '{"dateCloture":"2025-03-31","typeDepot":"Comptes annuels et rapports"}',
+      typeavis_lib: "Avis initial",
+    })).toBe("Comptes annuels et rapports · exercice clos le 31/03/2025");
+  });
+});
+
+describe("RNE establishments", () => {
+  it("extracts the principal and other establishments from the RNE company payload", () => {
+    const result = normalizeInpiEstablishments({
+      content: {
+        personneMorale: {
+          etablissementPrincipal: {
+            descriptionEtablissement: { siret: "42492579000083", indicateurEtablissementPrincipal: true },
+            adresse: { numVoie: "10", typeVoie: "RUE", voie: "DES ROSIERISTES", codePostal: "69410", commune: "CHAMPAGNE-AU-MONT-D'OR" },
+            activites: [{ indicateurPrincipal: true, codeApe: "80.20Z", dateDebut: "2005-05-09" }],
+          },
+          autresEtablissements: [
+            {
+              descriptionEtablissement: { siret: "42492579000125" },
+              adresse: { numVoie: "2", typeVoie: "RUE", voie: "EXEMPLE", codePostal: "31000", commune: "TOULOUSE" },
+              activites: [{ indicateurPrincipal: true, codeApe: "80.20Z", dateDebut: "2012-01-01" }],
+            },
+          ],
+        },
+      },
+    });
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ siret: "42492579000083", headOffice: true, active: true });
+    expect(result[1]).toMatchObject({ siret: "42492579000125", city: "TOULOUSE", active: true });
+  });
+
+  it("deduplicates the primary source and RNE establishment by SIRET", () => {
+    const primary: CompanyEstablishment[] = [{
+      siret: "42492579000083",
+      address: "10 RUE DES ROSIERISTES",
+      active: true,
+      headOffice: true,
+    }];
+    const rne: CompanyEstablishment[] = [
+      { siret: "42492579000083", address: "10 RUE DES ROSIERISTES, 69410 CHAMPAGNE-AU-MONT-D'OR", city: "CHAMPAGNE-AU-MONT-D'OR", active: true, headOffice: true },
+      { siret: "42492579000125", address: "2 RUE EXEMPLE, 31000 TOULOUSE", city: "TOULOUSE", active: true },
+    ];
+    const merged = mergeCompanyEstablishments(primary, rne);
+    expect(merged).toHaveLength(2);
+    expect(merged[0].siret).toBe("42492579000083");
+    expect(merged[0].headOffice).toBe(true);
+  });
+});
+
+describe("web corroboration", () => {
+  const hunter: CompanyWebIntelligence = {
+    domain: "anaveo.com",
+    websiteUrl: "https://anaveo.com",
+    description: "Anaveo is an accounting technology company",
+    technologies: ["wordpress", "nginx"],
+    genericEmails: ["contact@anaveo.com"],
+    phoneNumbers: [],
+    linkedinHandle: "company/noveo-antilles",
+  };
+
+  it("suppresses Hunter description and LinkedIn when an independent source does not corroborate them", () => {
+    const web = mergeWebIntelligence(hunter, {
+      domain: "anaveo.com",
+      websiteUrl: "https://anaveo.com",
+      serpPosition: 1,
+      serpSnippet: "ANAVEO conçoit des solutions de sécurité électronique pour les entreprises.",
+      linkedinHandle: "company/anaveo",
+      technologies: [],
+      genericEmails: [],
+      phoneNumbers: [],
+    });
+    expect(web?.domainVerified).toBe(true);
+    expect(web?.description).toContain("sécurité électronique");
+    expect(web?.description).not.toContain("accounting technology");
+    expect(web?.linkedinHandle).toBeUndefined();
+    expect(web?.linkedinVerified).toBe(false);
+    expect(web?.technologies).toContain("wordpress");
+  });
+
+  it("withholds Hunter-derived details when the proposed domain is not corroborated", () => {
+    const web = mergeWebIntelligence(hunter, {
+      domain: "another-company.fr",
+      websiteUrl: "https://another-company.fr",
+      serpPosition: 2,
+      technologies: [],
+      genericEmails: [],
+      phoneNumbers: [],
+    });
+    expect(web?.domain).toBe("anaveo.com");
+    expect(web?.domainVerified).toBe(false);
+    expect(web?.description).toBeUndefined();
+    expect(web?.technologies).toEqual([]);
+    expect(web?.genericEmails).toEqual([]);
+  });
+
+  it("scores an uncorroborated domain as evidence only, without commercial-access points", () => {
+    const unverified = enrichment();
+    if (unverified.web) {
+      unverified.web.domainVerified = false;
+      unverified.web.genericEmails = [];
+      unverified.web.technologies = [];
+      unverified.web.serpPosition = undefined;
+    }
+    const score = computeOpportunityScore({
+      company: company({ executives: [] }),
+      facts: [rneFact],
+      events: [],
+      signals: [],
+      enrichment: unverified,
+    });
+    const access = score.subscores.find((item) => item.id === "access");
+    expect(access?.value).toBe(10);
+    expect(access?.evidence.join(" ")).toContain("aucun point commercial attribué");
   });
 });
 
