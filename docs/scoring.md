@@ -1,63 +1,71 @@
-# Opportunity Score V0.2
+# Intelligence Scoring V0.4
 
-Le score Opportunity mesure un **niveau d'intérêt commercial observable**, pas la solvabilité, la valeur d'entreprise ni une probabilité de vente.
+La V0.4 sépare les questions métier au lieu de présenter un unique score « Opportunity » comme vérité centrale.
 
-## Lecture correcte
+## Les cinq axes
 
-`75/100` signifie que les signaux disponibles produisent un score composite de 75 selon le modèle versionné `opportunity-v0.2-composite`.
+| Axe | Question | Lecture |
+| --- | --- | --- |
+| Prospect Fit | Cette entreprise correspond-elle structurellement à une cible exploitable ? | 0–100 |
+| Momentum | Existe-t-il un déclencheur récent et documenté ? | 0–100 ou **données insuffisantes** |
+| Commercial Access | Dispose-t-on de points d’entrée et d’une présence exploitable ? | 0–100 |
+| Risk Exposure | Les sources couvertes révèlent-elles des signaux de vigilance ? | 0–100, **0 = faible exposition** |
+| Data Confidence | Quelle part des familles de preuves est réellement couverte ? | 0–100 |
 
-Cela ne signifie pas :
+Un axe manquant n’est jamais remplacé par une fausse note moyenne. En particulier, `Momentum = null` signifie **aucun déclencheur récent suffisamment documenté**.
 
-- que l'entreprise est meilleure que 75 % des entreprises françaises ;
-- qu'elle a 75 % de chances d'acheter ;
-- qu'elle est financièrement saine à 75 %.
+## Décision commerciale
 
-Le percentile est une information distincte et n'est affiché que lorsqu'un échantillon comparable suffisant existe.
+La décision affichée est distincte des sous-scores :
 
-## Pondération
+- `triggered` : Fit suffisant + Momentum réel + risque maîtrisé ;
+- `watch` : profil à surveiller, signaux insuffisants ou risque nécessitant une vérification ;
+- `not-determined` : données insuffisantes pour prioriser.
 
-| Axe | Poids | Exemples de preuves |
-| --- | ---: | --- |
-| Company Health | 25 % | activité, ancienneté, gouvernance, recoupement RNE, comptes publics |
-| Growth Signals | 25 % | événements historisés, signaux de mouvement, actualités récentes |
-| Digital Presence | 20 % | domaine, visibilité SERP, technologies, présence web |
-| Commercial Fit | 30 % | employeur, effectif, multi-sites, contactabilité publique |
+Une **procédure BODACC critique récente** ou une entreprise administrativement fermée constitue un hard-stop : le moteur ne peut pas produire `triggered`, même si le Fit et le Momentum sont élevés.
 
-Le score global est la somme pondérée des quatre sous-scores, bornée entre 0 et 100.
+## BODACC et temporalité
 
-## Données manquantes
+La famille « procédures collectives » ne suffit pas à qualifier un événement de critique : elle contient aussi des jugements de clôture et des plans. Le moteur analyse le libellé et le détail du jugement :
 
-Une absence de données n'est pas assimilée à une mauvaise performance. Pour les axes Growth et Digital, lorsqu'il n'existe pas assez de preuves pour conclure, le moteur utilise une valeur neutre et réduit le niveau de confiance.
+- ouverture / liquidation / redressement / sauvegarde / conversion : critique ;
+- clôture / plan / continuation / cession / extinction : vigilance ;
+- création / immatriculation : positif ;
+- radiation / conciliation : vigilance.
 
-La fiche expose séparément :
+Le risque tient aussi compte de la récence. Un événement critique récent pèse davantage qu’un événement historique. Une clôture n’est pas assimilée à une procédure active.
 
-- le score ;
-- les quatre sous-scores ;
-- les facteurs ayant contribué au résultat ;
-- le niveau de confiance ;
-- le pourcentage de couverture des familles de preuves ;
-- les familles encore manquantes.
+Les dépôts de comptes routiniers restent des preuves juridiques utiles mais **ne créent pas à eux seuls du Momentum commercial**.
 
-## Confiance
+## Finances
 
-La confiance ne modifie pas mécaniquement le score. Elle indique la densité et la diversité des preuves disponibles.
+Les indicateurs financiers sont calculés uniquement lorsque les valeurs publiques existent réellement :
 
-Exemple : une entreprise peut obtenir un score 70 avec une confiance faible si seules les données légales sont disponibles. La même valeur avec RNE, web, actualités et historique aura une confiance supérieure.
+- chiffre d’affaires ;
+- résultat net ;
+- marge nette = résultat net / chiffre d’affaires ;
+- évolution du CA et du résultat si plusieurs exercices sont disponibles.
 
-## Benchmark automatique
+`null`, chaîne vide ou valeur non numérique ne sont jamais convertis en zéro. Une marge faible ou un résultat négatif alimentent `Risk Exposure`, sans être présentés comme une analyse de solvabilité.
 
-Le benchmark compare le score à la dernière valeur connue d'entreprises utilisant la **même version de scoring** et appartenant à la même division NAF.
+## Score historique de compatibilité
 
-Le moteur n'affiche aucun percentile tant que l'échantillon est inférieur au seuil minimum de 20 entreprises comparables.
+Le champ numérique `score.value` reste conservé pour compatibilité avec l’API, l’historique et le benchmark existant. Il s’agit d’un **indice interne de priorité**, pas de la décision principale de l’interface et pas d’un percentile national.
 
-Quand le seuil est atteint, la fiche peut afficher par exemple :
+La décision utilisateur doit lire `score.opportunity` et les cinq sous-scores.
 
-```text
-Percentile 68 sur 47 entreprises comparables — division NAF 80
-```
+## Confiance et couverture
 
-Ce benchmark s'améliore donc naturellement à mesure que le moteur analyse et historise davantage d'entreprises.
+Les familles actuellement suivies sont : données légales, RNE, BODACC, Web/SERP, firmographie web, actualités et historique interne.
+
+Le pourcentage de couverture mesure la présence de ces familles ; il ne transforme pas une source absente en donnée négative.
+
+## Benchmark
+
+Le benchmark n’est affiché que lorsqu’un échantillon comparable suffisant existe avec **la même version de scoring**. Le seuil minimum reste 20 entreprises comparables dans la même division NAF.
 
 ## Versionnement
 
-Toute modification significative des poids ou des règles doit créer une nouvelle version de score. Les benchmarks ne doivent jamais mélanger des versions différentes.
+Version courante : `intelligence-v0.4.1`.
+
+Toute modification significative des règles de décision, du sens d’un axe ou des seuils doit créer une nouvelle version. Les benchmarks ne doivent jamais mélanger plusieurs versions.
