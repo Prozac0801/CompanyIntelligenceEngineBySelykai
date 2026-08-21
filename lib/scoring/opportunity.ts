@@ -7,6 +7,12 @@ import type {
   ScoreSubscore,
 } from "@/types/company";
 import type { CompanyEvent, CompanyFact, CompanySignal } from "@/types/intelligence";
+import {
+  hasRecentCriticalLegalEvent,
+  isCommercialMomentumLegalEvent,
+  isRecentLegalEvent,
+  legalEventAgeDays,
+} from "@/lib/intelligence/legal-events";
 
 interface ScoreInput {
   company: CompanyProfile;
@@ -37,6 +43,13 @@ function confidenceForEvidence(count: number, expected: number): "low" | "medium
   return "low";
 }
 
+function safeNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value.replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function latestFinancial(raw: unknown): { revenue?: number; netIncome?: number; margin?: number } {
   if (!raw || typeof raw !== "object") return {};
   const entries = Object.entries(raw as Record<string, unknown>)
@@ -44,12 +57,12 @@ function latestFinancial(raw: unknown): { revenue?: number; netIncome?: number; 
     .sort(([a], [b]) => b.localeCompare(a));
   const data = entries[0]?.[1] as Record<string, unknown> | undefined;
   if (!data) return {};
-  const revenue = Number(data.ca ?? data.chiffre_affaires);
-  const netIncome = Number(data.resultat_net ?? data.resultat);
+  const revenue = safeNumber(data.ca ?? data.chiffre_affaires);
+  const netIncome = safeNumber(data.resultat_net ?? data.resultat);
   return {
-    revenue: Number.isFinite(revenue) ? revenue : undefined,
-    netIncome: Number.isFinite(netIncome) ? netIncome : undefined,
-    margin: Number.isFinite(revenue) && revenue !== 0 && Number.isFinite(netIncome) ? (netIncome / revenue) * 100 : undefined,
+    revenue,
+    netIncome,
+    margin: revenue !== undefined && revenue !== 0 && netIncome !== undefined ? (netIncome / revenue) * 100 : undefined,
   };
 }
 
@@ -105,14 +118,10 @@ function momentumScore(input: ScoreInput): { subscore: ScoreSubscore; factors: S
   const { events, signals, enrichment } = input;
   const evidence: string[] = [];
   const factors: ScoreFactor[] = [];
-  const now = Date.now();
-  const recentLegal = enrichment.legalEvents.filter((event) => {
-    const date = new Date(event.date).getTime();
-    return Number.isFinite(date) && now - date <= 180 * 24 * 60 * 60 * 1000;
-  });
+  const legalTriggers = enrichment.legalEvents.filter((event) => isCommercialMomentumLegalEvent(event));
+  const nonRiskSignals = signals.filter((signal) => signal.type !== "LEGAL_RISK");
+  const dynamicCount = events.length + nonRiskSignals.length + legalTriggers.length + enrichment.news.length;
 
-  const positiveLegal = recentLegal.filter((event) => event.risk === "positive" || event.risk === "neutral");
-  const dynamicCount = events.length + signals.length + positiveLegal.length + enrichment.news.length;
   if (dynamicCount === 0) {
     return {
       subscore: {
@@ -135,19 +144,19 @@ function momentumScore(input: ScoreInput): { subscore: ScoreSubscore; factors: S
     evidence.push(`${events.length} changement(s) détecté(s) depuis une observation précédente`);
     factors.push(factor("momentum", "Changements historisés", points, `${events.length} évolution(s) factuelle(s)`));
   }
-  if (positiveLegal.length) {
-    const points = Math.min(28, positiveLegal.length * 8);
+  if (legalTriggers.length) {
+    const points = Math.min(28, legalTriggers.length * 8);
     value += points;
-    evidence.push(`${positiveLegal.length} événement(s) BODACC récent(s)`);
-    factors.push(factor("momentum", "Activité juridique récente", points, positiveLegal.slice(0, 2).map((event) => event.family).join(" · ")));
+    evidence.push(`${legalTriggers.length} déclencheur(s) BODACC récent(s)`);
+    factors.push(factor("momentum", "Activité juridique exploitable", points, legalTriggers.slice(0, 2).map((event) => event.family).join(" · ")));
   }
   if (enrichment.news.length) {
     const points = Math.min(15, 5 + enrichment.news.length * 2);
     value += points;
     evidence.push(`${enrichment.news.length} actualité(s) pertinente(s)`);
   }
-  if (signals.length) {
-    const strongest = Math.max(...signals.map((signal) => signal.strength));
+  if (nonRiskSignals.length) {
+    const strongest = Math.max(...nonRiskSignals.map((signal) => signal.strength));
     value += Math.round(strongest * 0.18);
     evidence.push(`Signal dérivé maximal : ${strongest}/100`);
   }
@@ -217,20 +226,41 @@ function riskScore(input: ScoreInput): { subscore: ScoreSubscore; factors: Score
   const evidence: string[] = [];
   const factors: ScoreFactor[] = [];
   const financial = latestFinancial(input.company.rawFinancials);
-  let value = input.company.status === "closed" ? 70 : 8;
+  let value = 8;
 
-  const critical = input.enrichment.legalEvents.filter((event) => event.risk === "critical");
-  const warnings = input.enrichment.legalEvents.filter((event) => event.risk === "warning");
-  if (critical.length) {
-    const points = Math.min(70, 45 + critical.length * 10);
-    value += points;
-    evidence.push(`${critical.length} événement(s) juridique(s) critique(s) BODACC`);
-    factors.push(factor("risk", "Procédure juridique critique", points, critical[0]?.family || "BODACC"));
+  if (input.company.status === "closed") {
+    value += 70;
+    evidence.push("Entreprise administrativement fermée");
+    factors.push(factor("risk", "Entreprise fermée", 70, "État administratif officiel fermé"));
   }
-  if (warnings.length) {
-    const points = Math.min(30, warnings.length * 12);
+
+  const recentCritical = input.enrichment.legalEvents.filter(
+    (event) => event.risk === "critical" && isRecentLegalEvent(event, 365),
+  );
+  const olderCritical = input.enrichment.legalEvents.filter((event) => {
+    if (event.risk !== "critical" || isRecentLegalEvent(event, 365)) return false;
+    const age = legalEventAgeDays(event);
+    return age !== null;
+  });
+  const recentWarnings = input.enrichment.legalEvents.filter(
+    (event) => event.risk === "warning" && isRecentLegalEvent(event, 365),
+  );
+
+  if (recentCritical.length) {
+    const points = Math.min(80, 65 + (recentCritical.length - 1) * 8);
     value += points;
-    evidence.push(`${warnings.length} événement(s) BODACC à surveiller`);
+    evidence.push(`${recentCritical.length} procédure(s) BODACC critique(s) récente(s)`);
+    factors.push(factor("risk", "Procédure juridique critique récente", points, recentCritical[0]?.description || recentCritical[0]?.family || "BODACC"));
+  }
+  if (olderCritical.length) {
+    const points = Math.min(30, 12 + olderCritical.length * 4);
+    value += points;
+    evidence.push(`${olderCritical.length} procédure(s) critique(s) historique(s) à contextualiser`);
+  }
+  if (recentWarnings.length) {
+    const points = Math.min(24, recentWarnings.length * 8);
+    value += points;
+    evidence.push(`${recentWarnings.length} événement(s) BODACC récent(s) à surveiller`);
   }
   if (typeof financial.netIncome === "number" && financial.netIncome < 0) {
     value += 30;
@@ -246,13 +276,15 @@ function riskScore(input: ScoreInput): { subscore: ScoreSubscore; factors: Score
   }
 
   if (!evidence.length) evidence.push("Aucun signal de risque fort détecté dans les sources actuellement couvertes");
+  const legalEvidenceCount = input.enrichment.legalEvents.length > 0 ? 1 : 0;
+  const financialEvidenceCount = financial.revenue !== undefined || financial.netIncome !== undefined ? 1 : 0;
   return {
     subscore: {
       id: "risk",
       label: "Risk Exposure",
       value: clamp(value),
       weight: 0.15,
-      confidence: confidenceForEvidence(input.enrichment.legalEvents.length + (financial.revenue ? 1 : 0), 3),
+      confidence: confidenceForEvidence(legalEvidenceCount + financialEvidenceCount + (input.company.status !== "unknown" ? 1 : 0), 3),
       status: "scored",
       evidence,
     },
@@ -294,20 +326,28 @@ export function computeOpportunityScore(input: ScoreInput): ExplainableScore {
   const fitValue = fit.subscore.value || 0;
   const accessValue = access.subscore.value || 0;
   const riskValue = risk.subscore.value || 0;
+  const recentCritical = hasRecentCriticalLegalEvent(input.enrichment.legalEvents);
   const legacyPriority = clamp(
     fitValue * 0.48 + accessValue * 0.24 + (100 - riskValue) * 0.18 + (momentumValue ?? 50) * 0.1,
   );
 
   let opportunity: ExplainableScore["opportunity"];
-  if (momentumValue === null) {
+  if (recentCritical || input.company.status === "closed") {
+    opportunity = {
+      status: "watch",
+      reason: recentCritical
+        ? "Une procédure BODACC critique récente bloque toute recommandation de priorité commerciale immédiate."
+        : "L’entreprise est administrativement fermée : aucune priorité commerciale immédiate n’est recommandée.",
+    };
+  } else if (momentumValue === null) {
     opportunity = fitValue >= 65
       ? { status: "watch", reason: "Bon profil structurel, mais aucun déclencheur récent suffisamment documenté." }
       : { status: "not-determined", reason: "Pas assez de signaux pour recommander une action commerciale immédiate." };
-  } else if (fitValue >= 60 && momentumValue >= 50 && riskValue < 70) {
+  } else if (fitValue >= 60 && momentumValue >= 50 && riskValue < 60) {
     opportunity = {
       status: "triggered",
       value: clamp(fitValue * 0.5 + momentumValue * 0.3 + accessValue * 0.2 - riskValue * 0.15),
-      reason: "Profil commercial intéressant avec activité récente suffisamment documentée.",
+      reason: "Profil commercial intéressant avec activité récente suffisamment documentée et risque maîtrisé.",
     };
   } else {
     opportunity = { status: "watch", reason: "Des signaux existent, mais ils ne justifient pas encore une priorité commerciale forte." };
@@ -330,6 +370,6 @@ export function computeOpportunityScore(input: ScoreInput): ExplainableScore {
       benchmarkStatus: "not-enough-data",
       benchmarkDescription: "Benchmark sectoriel affiché uniquement lorsqu’un échantillon comparable suffisant est disponible.",
     },
-    version: "intelligence-v0.4",
+    version: "intelligence-v0.4.1",
   };
 }
