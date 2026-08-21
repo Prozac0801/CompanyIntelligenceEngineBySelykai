@@ -40,6 +40,16 @@ Adds:
 
 Validation covered cross-workspace isolation, due-target selection, alert deduplication, scheduling of the next check and cascading cleanup. A second smoke test was executed successfully after promotion to Neon main.
 
+### 0003 — BODACC provider
+
+Adds BODACC / DILA to the provider registry so legal-event facts retain their official provenance when persisted.
+
+### 0004 — Momentum V0.5 providers
+
+Applied on 2026-08-21 after validation on the isolated Neon branch `br-frosty-art-b2tsfqoz`, then promoted exactly to `main` and the temporary branch was deleted.
+
+Adds BOAMP / DILA as an official provider for public-procurement attribution evidence. No application table shape changes are introduced by this migration.
+
 ## Migration policy
 
 `database/schema.sql` is the cumulative schema reference.
