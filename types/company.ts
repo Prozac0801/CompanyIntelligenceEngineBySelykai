@@ -123,7 +123,7 @@ export interface CompanyHiringIntelligence {
   activeOpeningCount?: number;
   jobTitles: string[];
   latestPostedAt?: string;
-  method: "structured-data" | "first-party-links" | "careers-page" | "not-found";
+  method: "structured-data" | "verified-ats" | "first-party-links" | "careers-page" | "not-found";
 }
 
 export type CompanyBusinessTriggerType =
