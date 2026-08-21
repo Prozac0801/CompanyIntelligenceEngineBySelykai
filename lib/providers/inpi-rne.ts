@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { providerStatusFromHttp, recordProviderRun } from "@/lib/providers/observability";
-import type { SourceEvidence } from "@/types/company";
+import type { CompanyEstablishment, SourceEvidence } from "@/types/company";
 import type { CompanyFact, FactValue } from "@/types/intelligence";
 
 const INPI_API_BASE = "https://registre-national-entreprises.inpi.fr/api";
@@ -43,6 +43,50 @@ interface InpiLegalDescription {
   natureDesActivite?: string | null;
 }
 
+interface InpiAddress {
+  codePays?: string | null;
+  pays?: string | null;
+  codePostal?: string | null;
+  commune?: string | null;
+  codeInseeCommune?: string | null;
+  typeVoie?: string | null;
+  voie?: string | null;
+  voieCodifiee?: string | null;
+  numVoie?: string | null;
+  indiceRepetition?: string | null;
+  distributionSpeciale?: string | null;
+  complementLocalisation?: string | null;
+  communeAncienne?: string | null;
+}
+
+interface InpiActivity {
+  indicateurPrincipal?: boolean | null;
+  rolePrincipalPourEntreprise?: boolean | null;
+  codeApe?: string | null;
+  dateDebut?: string | null;
+  dateFin?: string | null;
+}
+
+interface InpiEstablishmentDescription {
+  siret?: string | null;
+  indicateurEtablissementPrincipal?: boolean | null;
+  dateEffet?: string | null;
+  dateEffetFermeture?: string | null;
+}
+
+interface InpiEstablishmentRecord {
+  descriptionEtablissement?: InpiEstablishmentDescription | null;
+  adresse?: InpiAddress | null;
+  activites?: InpiActivity[] | null;
+  detailCessationEtablissement?: unknown;
+}
+
+interface InpiEstablishmentContainer {
+  etablissementPrincipal?: InpiEstablishmentRecord | null;
+  etablissementModifie?: InpiEstablishmentRecord | null;
+  autresEtablissements?: InpiEstablishmentRecord[] | null;
+}
+
 interface InpiCompanyRecord {
   diffusionINSEE?: string | null;
   siren?: string | null;
@@ -56,13 +100,21 @@ interface InpiCompanyRecord {
       microEntreprise?: boolean | null;
       societeEtrangere?: boolean | null;
     } | null;
-    personneMorale?: {
+    personneMorale?: (InpiEstablishmentContainer & {
       identite?: {
         entreprise?: InpiLegalEntity | null;
         description?: InpiLegalDescription | null;
       } | null;
-    } | null;
+    }) | null;
+    personnePhysique?: InpiEstablishmentContainer | null;
+    exploitation?: InpiEstablishmentContainer | null;
   } | null;
+}
+
+export interface InpiRneSupplement {
+  facts: CompanyFact[];
+  establishments: CompanyEstablishment[];
+  evidence?: SourceEvidence;
 }
 
 let cachedToken: TokenCache | null = null;
@@ -194,23 +246,90 @@ function pushFact(
   target.push(fact(type, key, value, evidence));
 }
 
-export async function getInpiRneFacts(siren: string): Promise<CompanyFact[]> {
-  if (!/^\d{9}$/.test(siren)) return [];
-  if (!isInpiRneConfigured()) return [];
+function clean(value?: string | null): string | undefined {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  return normalized || undefined;
+}
 
-  const record = await getJson<InpiCompanyRecord>(`/companies/${siren}`);
-  if (!record) return [];
+function formatAddress(address?: InpiAddress | null): string | undefined {
+  if (!address) return undefined;
+  const street = [
+    clean(address.numVoie),
+    clean(address.indiceRepetition),
+    clean(address.typeVoie),
+    clean(address.voie || address.voieCodifiee),
+  ].filter(Boolean).join(" ");
+  const locality = [clean(address.codePostal), clean(address.commune)].filter(Boolean).join(" ");
+  const parts = [clean(address.complementLocalisation), street, clean(address.distributionSpeciale), locality]
+    .filter(Boolean);
+  return parts.join(", ") || undefined;
+}
 
-  const observedAt = new Date().toISOString();
-  const evidence: SourceEvidence = {
+function normalizeEstablishment(
+  item: InpiEstablishmentRecord,
+  forceHeadOffice = false,
+): CompanyEstablishment | null {
+  const description = item.descriptionEtablissement;
+  const principalActivity = (item.activites || []).find((activity) => activity.indicateurPrincipal)
+    || (item.activites || []).find((activity) => activity.rolePrincipalPourEntreprise)
+    || item.activites?.[0];
+  const address = formatAddress(item.adresse);
+  const siret = clean(description?.siret);
+  if (!siret && !address) return null;
+
+  return {
+    siret,
+    address,
+    postalCode: clean(item.adresse?.codePostal),
+    city: clean(item.adresse?.commune),
+    nafCode: clean(principalActivity?.codeApe),
+    active: !description?.dateEffetFermeture && !principalActivity?.dateFin && !item.detailCessationEtablissement,
+    headOffice: forceHeadOffice || Boolean(description?.indicateurEtablissementPrincipal),
+    createdAt: clean(principalActivity?.dateDebut || description?.dateEffet),
+  };
+}
+
+export function normalizeInpiEstablishments(record: InpiCompanyRecord): CompanyEstablishment[] {
+  const containers = [record.content?.personneMorale, record.content?.personnePhysique, record.content?.exploitation]
+    .filter((container): container is InpiEstablishmentContainer => Boolean(container));
+  const normalized: CompanyEstablishment[] = [];
+
+  for (const container of containers) {
+    if (container.etablissementPrincipal) {
+      const establishment = normalizeEstablishment(container.etablissementPrincipal, true);
+      if (establishment) normalized.push(establishment);
+    }
+    for (const item of container.autresEtablissements || []) {
+      const establishment = normalizeEstablishment(item, false);
+      if (establishment) normalized.push(establishment);
+    }
+    if (container.etablissementModifie) {
+      const establishment = normalizeEstablishment(container.etablissementModifie, false);
+      if (establishment) normalized.push(establishment);
+    }
+  }
+
+  const seen = new Set<string>();
+  return normalized.filter((item) => {
+    const key = item.siret || `${item.address || ""}|${item.city || ""}`;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildEvidence(siren: string): SourceEvidence {
+  return {
     providerId: "inpi-rne",
     provider: "INPI / RNE",
     kind: "official",
-    observedAt,
+    observedAt: new Date().toISOString(),
     sourceUrl: `${INPI_API_BASE}/companies/${siren}`,
     confidence: 1,
   };
+}
 
+function factsFromRecord(record: InpiCompanyRecord, siren: string, evidence: SourceEvidence): CompanyFact[] {
   const legalIdentity = record.content?.personneMorale?.identite?.entreprise;
   const legalDescription = record.content?.personneMorale?.identite?.description;
   const creation = record.content?.natureCreation;
@@ -234,6 +353,23 @@ export async function getInpiRneFacts(siren: string): Promise<CompanyFact[]> {
   pushFact(facts, "structure", "commercial_prospecting_allowed", record.diffusionCommerciale ?? undefined, evidence);
 
   return facts;
+}
+
+export async function getInpiRneSupplement(siren: string): Promise<InpiRneSupplement> {
+  if (!/^\d{9}$/.test(siren) || !isInpiRneConfigured()) return { facts: [], establishments: [] };
+
+  const record = await getJson<InpiCompanyRecord>(`/companies/${siren}`);
+  if (!record) return { facts: [], establishments: [] };
+  const evidence = buildEvidence(siren);
+  return {
+    facts: factsFromRecord(record, siren, evidence),
+    establishments: normalizeInpiEstablishments(record),
+    evidence,
+  };
+}
+
+export async function getInpiRneFacts(siren: string): Promise<CompanyFact[]> {
+  return (await getInpiRneSupplement(siren)).facts;
 }
 
 export interface InpiCommercialReuseDecision {
