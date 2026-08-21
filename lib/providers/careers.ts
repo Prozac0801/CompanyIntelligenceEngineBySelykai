@@ -5,6 +5,7 @@ import {
   extractHtmlLinks,
   fetchSafeFirstPartyPage,
   htmlVisibleText,
+  pageMatchesCompany,
 } from "./direct-web";
 
 const CACHE_TTL_SECONDS = 60 * 60 * 24;
@@ -185,6 +186,8 @@ export async function getFirstPartyHiringIntelligence(
   const checkedAt = new Date().toISOString();
   const home = await fetchSafeFirstPartyPage(domain, "/");
   if (!home) return {};
+  const homeVisible = htmlVisibleText(home.html);
+  if (!pageMatchesCompany(companyName, homeVisible.slice(0, 100_000))) return {};
 
   const homeJobs = parseJobPostings(home.html);
   const homeJobLinks = jobLinks(home.html, home.url);
@@ -198,7 +201,7 @@ export async function getFirstPartyHiringIntelligence(
   let careersUrl: string | undefined;
   const structuredJobs = [...homeJobs];
   const discoveredJobLinks = new Set(homeJobLinks);
-  let pageOpeningCount: number | undefined = explicitOpeningCount(htmlVisibleText(home.html));
+  let pageOpeningCount: number | undefined = explicitOpeningCount(homeVisible);
 
   for (const url of candidateUrls.slice(0, MAX_CAREER_PAGES)) {
     const page = await fetchSafeFirstPartyPage(domain, url);
