@@ -225,6 +225,10 @@ interface MediaStackResponse {
   error?: unknown;
 }
 
+type ValidMediaStackResponse = MediaStackResponse & {
+  data: NonNullable<MediaStackResponse["data"]>;
+};
+
 function relevantArticle(item: NonNullable<MediaStackResponse["data"]>[number], companyName: string): boolean {
   const haystack = `${item.title || ""} ${item.description || ""}`.toLocaleLowerCase("fr-FR");
   const tokens = significantTokens(companyName);
@@ -233,7 +237,7 @@ function relevantArticle(item: NonNullable<MediaStackResponse["data"]>[number], 
   return tokens.length === 1 ? matches === 1 : matches >= Math.min(2, tokens.length);
 }
 
-function validMediaStackResponse(value?: MediaStackResponse | null): value is MediaStackResponse {
+function validMediaStackResponse(value?: MediaStackResponse | null): value is ValidMediaStackResponse {
   return Boolean(value && !value.error && value.success !== false && Array.isArray(value.data));
 }
 
