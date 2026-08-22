@@ -58,6 +58,32 @@ describe("V0.5.5 RNE policy events", () => {
     expect(policyEvent?.description).toContain("bloqué par opposition RNE");
   });
 
+  it("does not turn a temporarily missing RNE fact into a policy-change event", () => {
+    const previous = new Map<string, CompanyFact>([["commercial_prospecting_allowed", reuseFact(false)]]);
+    const current = new Map<string, CompanyFact>();
+
+    const policyEvent = detectCompanyEvents(previous, current)
+      .find((item) => item.type === "COMMERCIAL_REUSE_CHANGE");
+
+    expect(policyEvent).toBeUndefined();
+  });
+
+  it("does not create an upgrade-noise event when the previous snapshot had no RNE policy fact", () => {
+    const previous = new Map<string, CompanyFact>([["legal_name", {
+      type: "identity",
+      key: "legal_name",
+      value: "TEST",
+      evidence: rneEvidence,
+      fingerprint: "legal-name-test",
+    }]]);
+    const current = new Map<string, CompanyFact>([["commercial_prospecting_allowed", reuseFact(false)]]);
+
+    const policyEvent = detectCompanyEvents(previous, current)
+      .find((item) => item.type === "COMMERCIAL_REUSE_CHANGE");
+
+    expect(policyEvent).toBeUndefined();
+  });
+
   it("does not inflate Momentum from a policy-only change", () => {
     const signals = inferSignals([event("COMMERCIAL_REUSE_CHANGE")]);
     expect(signals).toEqual([]);
