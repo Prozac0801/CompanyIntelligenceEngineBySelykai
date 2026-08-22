@@ -19,6 +19,7 @@ import {
 } from "@/lib/persistence/alert-repository";
 import { listWatchlistCompanies } from "@/lib/persistence/watchlist-repository";
 import { ensurePersonalWorkspace } from "@/lib/workspaces/bootstrap";
+import type { AlertSeverity } from "@/types/workspace";
 import {
   addCompanyToWatchlistAction,
   archiveAlertAction,
@@ -33,6 +34,20 @@ export const dynamic = "force-dynamic";
 
 function frequencyLabel(value: "daily" | "weekly" | "manual") {
   return value === "daily" ? "quotidien" : value === "weekly" ? "hebdomadaire" : "manuel";
+}
+
+function severityLabel(value: AlertSeverity) {
+  if (value === "critical") return "critique";
+  if (value === "high") return "élevée";
+  if (value === "medium") return "moyenne";
+  return "info";
+}
+
+function severityBadgeClass(value: AlertSeverity) {
+  if (value === "critical") return styles.severityCritical;
+  if (value === "high") return styles.severityHigh;
+  if (value === "medium") return styles.severityMedium;
+  return styles.severityInfo;
 }
 
 export default async function WorkspacePage() {
@@ -135,7 +150,7 @@ export default async function WorkspacePage() {
                     {alert.body ? <p className={styles.alertBody}>{alert.body}</p> : null}
                     <span className={styles.alertMeta}>
                       <span>{new Date(alert.createdAt).toLocaleString("fr-FR")}</span>
-                      <b>{alert.severity}</b>
+                      <b className={`${styles.severityBadge} ${severityBadgeClass(alert.severity)}`}>{severityLabel(alert.severity)}</b>
                       <span>{alert.status === "unread" ? "nouvelle" : "lue"}</span>
                     </span>
                   </Link>
