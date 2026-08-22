@@ -1,0 +1,121 @@
+.watchlistNavigator {
+  margin-bottom: 18px;
+}
+
+.watchlistNavigatorHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.watchlistNavigatorHeader strong {
+  font-size: 11px;
+}
+
+.watchlistNavigatorHeader span {
+  color: #818b93;
+  font-size: 9px;
+}
+
+.watchlistTabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.watchlistTab {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border: 1px solid #dfe4e8;
+  border-radius: 13px;
+  background: #fff;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.watchlistTab:hover {
+  transform: translateY(-1px);
+  border-color: #bdc7ce;
+  background: #fafcfd;
+}
+
+.watchlistTabActive {
+  border-color: #1b2227;
+  background: #111619;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(17, 22, 25, .1);
+}
+
+.watchlistTabActive:hover {
+  border-color: #1b2227;
+  background: #111619;
+}
+
+.watchlistTabCopy {
+  min-width: 0;
+}
+
+.watchlistTabCopy strong,
+.watchlistTabCopy small {
+  display: block;
+}
+
+.watchlistTabCopy strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watchlistTabCopy small {
+  margin-top: 4px;
+  overflow: hidden;
+  color: #8a949b;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watchlistTabActive .watchlistTabCopy small {
+  color: #8f9aa1;
+}
+
+.watchlistCount {
+  flex: 0 0 auto;
+  min-width: 28px;
+  padding: 5px 7px;
+  border-radius: 999px;
+  background: #f1f4f6;
+  color: #4e5961;
+  font: 700 9px/1 var(--font-mono), monospace;
+  text-align: center;
+}
+
+.watchlistTabActive .watchlistCount {
+  background: #263036;
+  color: #c5ff64;
+}
+
+.activeListContext {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #68737c;
+  font-size: 9px;
+}
+
+.activeListContext b {
+  color: #111619;
+  font-weight: 700;
+}
+
+@media (max-width: 620px) {
+  .watchlistTabs {
+    grid-template-columns: 1fr;
+  }
+}

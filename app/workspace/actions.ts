@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { analyzeCompany } from "@/lib/intelligence/company-engine";
 import {
@@ -30,22 +31,23 @@ function requireUuid(value: FormDataEntryValue | null, label: string): string {
 
 export async function createWatchlistAction(formData: FormData) {
   const userId = await requireUserId();
-  const workspaceId = String(formData.get("workspaceId") || "");
-  const name = String(formData.get("name") || "").trim();
-  if (!workspaceId || !name) throw new Error("Workspace et nom requis.");
+  const workspaceId = requireUuid(formData.get("workspaceId"), "Workspace");
+  const name = String(formData.get("name") || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!name) throw new Error("Nom de liste requis.");
 
-  await createWatchlist({ userId, workspaceId, name });
+  const watchlist = await createWatchlist({ userId, workspaceId, name });
   revalidatePath("/workspace");
+  redirect(`/workspace?watchlist=${watchlist.id}`);
 }
 
 export async function addCompanyToWatchlistAction(formData: FormData) {
   const userId = await requireUserId();
-  const watchlistId = String(formData.get("watchlistId") || "");
+  const watchlistId = requireUuid(formData.get("watchlistId"), "Watchlist");
   const siren = String(formData.get("siren") || "").replace(/\D/g, "");
   const frequencyValue = String(formData.get("frequency") || "daily");
   const frequency = frequencyValue === "weekly" || frequencyValue === "manual" ? frequencyValue : "daily";
 
-  if (!watchlistId || !/^\d{9}$/.test(siren)) throw new Error("SIREN invalide ou watchlist absente.");
+  if (!/^\d{9}$/.test(siren)) throw new Error("SIREN invalide.");
 
   // Analyze first so the canonical company exists in the shared intelligence layer.
   const analysis = await analyzeCompany(siren, { persist: true });
