@@ -203,8 +203,7 @@ export function parseHiringPageSnapshot(html: string, baseUrl: string, now = Dat
     ...structuredJobs.map((job) => job.title?.replace(/\s+/g, " ").trim()).filter((title): title is string => Boolean(title)),
     ...links.map((link) => link.text.replace(/\s+/g, " ").trim()).filter(probableJobTitle),
   ])).slice(0, 12);
-  const linkedJobs = jobLinks(html, baseUrl).length;
-  const activeOpeningCount = structuredJobs.length || explicitCount || (linkedJobs >= 2 ? linkedJobs : undefined);
+  const activeOpeningCount = structuredJobs.length || explicitCount || (jobTitles.length ? jobTitles.length : undefined);
   return {
     activeOpeningCount,
     jobTitles,
@@ -251,7 +250,7 @@ export async function getFirstPartyHiringIntelligence(
 ): Promise<{ hiring?: CompanyHiringIntelligence; evidence?: SourceEvidence }> {
   const domain = cleanFirstPartyDomain(candidateDomain);
   if (!domain) return {};
-  const cacheKey = `careers:v2:${domain}`;
+  const cacheKey = `careers:v3:${domain}`;
   const cached = await readProviderCache<CachedHiringResult>(cacheKey);
   if (cached?.hiring) {
     return {
@@ -332,8 +331,7 @@ export async function getFirstPartyHiringIntelligence(
     ...structuredJobs.map((job) => job.title?.replace(/\s+/g, " ").trim()).filter((title): title is string => Boolean(title)),
   ])).slice(0, 12);
   const structuredCount = structuredJobs.length;
-  const linkCount = discoveredJobLinks.size;
-  const activeOpeningCount = structuredCount || pageOpeningCount || (linkCount >= 2 ? linkCount : undefined);
+  const activeOpeningCount = structuredCount || pageOpeningCount || (uniqueTitles.length ? uniqueTitles.length : undefined);
   const hiringDetected = Boolean(activeOpeningCount && activeOpeningCount > 0);
   const method: CompanyHiringIntelligence["method"] =
     structuredCount > 0
@@ -343,7 +341,7 @@ export async function getFirstPartyHiringIntelligence(
         : careersUrl
           ? "careers-page"
           : "not-found";
-  const confidence = method === "structured-data" ? 0.97 : method === "first-party-links" ? 0.86 : method === "careers-page" ? 0.76 : 0.66;
+  const confidence = method === "structured-data" ? 0.97 : method === "first-party-links" ? 0.88 : method === "careers-page" ? 0.76 : 0.66;
   const hiring: CompanyHiringIntelligence = {
     checkedAt,
     hiringDetected,
