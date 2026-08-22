@@ -25,10 +25,14 @@ export async function GET(
   const analysis = await analyzeCompany(siren, { persist: false });
   if (!analysis) return NextResponse.json({ error: "company_not_found" }, { status: 404 });
 
-  const reuse = commercialReuseDecision(analysis.facts);
-  if (reuse.status === "blocked") {
+  const reuse = analysis.commercialAction || commercialReuseDecision(analysis.facts);
+  if (reuse.status !== "allowed") {
     return NextResponse.json(
-      { error: "commercial_reuse_blocked", reason: reuse.reason },
+      {
+        error: reuse.status === "blocked" ? "commercial_reuse_blocked" : "commercial_reuse_not_confirmed",
+        reason: reuse.reason,
+        policyStatus: reuse.status,
+      },
       { status: 403, headers: { "Cache-Control": "private, no-store" } },
     );
   }
@@ -51,7 +55,8 @@ export async function GET(
       domain,
       contacts,
       count: contacts.length,
-      dataPolicy: "Contacts professionnels révélés à la demande. Aucun enrichissement personnel massif n’est lancé automatiquement.",
+      policyStatus: reuse.status,
+      dataPolicy: "Contacts professionnels révélés à la demande uniquement lorsque le statut de réutilisation commerciale RNE est explicitement autorisé. Aucun enrichissement personnel massif n’est lancé automatiquement.",
     },
     { headers: { "Cache-Control": "private, no-store" } },
   );
