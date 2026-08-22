@@ -38,7 +38,8 @@ export interface CompanyEvent {
     | "BODACC_ACTIVITY"
     | "HIRING_ACTIVITY_CHANGE"
     | "PUBLIC_CONTRACT_AWARD"
-    | "FINANCIAL_CHANGE";
+    | "FINANCIAL_CHANGE"
+    | "COMMERCIAL_REUSE_CHANGE";
   title: string;
   description: string;
   observedAt: string;

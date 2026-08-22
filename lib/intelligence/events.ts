@@ -36,6 +36,18 @@ function formatAmount(value: number | undefined): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value);
 }
 
+function commercialReuseStatus(fact: CompanyFact): "allowed" | "blocked" | "unknown" {
+  if (fact.value === true) return "allowed";
+  if (fact.value === false) return "blocked";
+  return "unknown";
+}
+
+function commercialReuseLabel(status: "allowed" | "blocked" | "unknown"): string {
+  if (status === "allowed") return "autorisé sans opposition RNE détectée";
+  if (status === "blocked") return "bloqué par opposition RNE";
+  return "non confirmé";
+}
+
 export function detectCompanyEvents(
   previous: Map<string, CompanyFact>,
   current: Map<string, CompanyFact>,
@@ -79,6 +91,28 @@ export function detectCompanyEvents(
       confidence: employer.after.evidence.confidence,
       evidenceKeys: ["employer"],
     });
+  }
+
+  const previousReuseFact = previous.get("commercial_prospecting_allowed");
+  const currentReuseFact = current.get("commercial_prospecting_allowed");
+  if (previousReuseFact && currentReuseFact) {
+    const previousReuse = commercialReuseStatus(previousReuseFact);
+    const currentReuse = commercialReuseStatus(currentReuseFact);
+    if (previousReuse !== currentReuse) {
+      const title = currentReuse === "blocked"
+        ? "Réutilisation commerciale désormais bloquée"
+        : currentReuse === "allowed"
+          ? "Opposition RNE à la réutilisation commerciale levée"
+          : "Statut de réutilisation commerciale devenu indéterminé";
+      events.push({
+        type: "COMMERCIAL_REUSE_CHANGE",
+        title,
+        description: `Cadre RNE : ${commercialReuseLabel(previousReuse)} → ${commercialReuseLabel(currentReuse)}. La plateforme adapte immédiatement les actions disponibles à ce statut.`,
+        observedAt: now,
+        confidence: currentReuseFact.evidence.confidence,
+        evidenceKeys: ["commercial_prospecting_allowed"],
+      });
+    }
   }
 
   const activeEstablishments = changed(previous, current, "active_establishment_sirets");
