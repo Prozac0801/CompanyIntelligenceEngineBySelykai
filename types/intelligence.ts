@@ -54,6 +54,11 @@ export interface CompanySignal {
   evidenceEventTypes: CompanyEvent["type"][];
 }
 
+export interface CommercialActionPolicy {
+  status: "allowed" | "blocked" | "unknown";
+  reason: string;
+}
+
 export interface CompanyAnalysisMeta {
   persisted: boolean;
   databaseConfigured: boolean;
@@ -68,6 +73,7 @@ export interface CompanyAnalysisResult<TCompany> {
   events: CompanyEvent[];
   signals: CompanySignal[];
   triggers: CompanyBusinessTrigger[];
+  commercialAction: CommercialActionPolicy;
   score: ExplainableScore;
   summary: CompanyIntelligenceSummary;
   meta: CompanyAnalysisMeta;
