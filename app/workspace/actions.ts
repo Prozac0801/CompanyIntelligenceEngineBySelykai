@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/server";
 import { analyzeCompany } from "@/lib/intelligence/company-engine";
 import {
+  archiveAlert,
+  markAlertRead,
+  markAllWorkspaceAlertsRead,
+} from "@/lib/persistence/alert-repository";
+import {
   addCompanyToWatchlist,
   createWatchlist,
 } from "@/lib/persistence/watchlist-repository";
@@ -42,4 +47,28 @@ export async function addCompanyToWatchlistAction(formData: FormData) {
   if (!added) throw new Error("Impossible d’ajouter cette entreprise à la watchlist.");
   revalidatePath("/workspace");
   revalidatePath(`/company/${siren}`);
+}
+
+export async function markAlertReadAction(formData: FormData) {
+  const userId = await requireUserId();
+  const alertId = String(formData.get("alertId") || "");
+  if (!alertId) throw new Error("Alerte requise.");
+  await markAlertRead({ userId, alertId });
+  revalidatePath("/workspace");
+}
+
+export async function archiveAlertAction(formData: FormData) {
+  const userId = await requireUserId();
+  const alertId = String(formData.get("alertId") || "");
+  if (!alertId) throw new Error("Alerte requise.");
+  await archiveAlert({ userId, alertId });
+  revalidatePath("/workspace");
+}
+
+export async function markAllAlertsReadAction(formData: FormData) {
+  const userId = await requireUserId();
+  const workspaceId = String(formData.get("workspaceId") || "");
+  if (!workspaceId) throw new Error("Workspace requis.");
+  await markAllWorkspaceAlertsRead({ userId, workspaceId });
+  revalidatePath("/workspace");
 }
