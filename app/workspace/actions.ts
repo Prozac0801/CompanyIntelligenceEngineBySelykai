@@ -13,11 +13,19 @@ import {
   createWatchlist,
 } from "@/lib/persistence/watchlist-repository";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function requireUserId(): Promise<string> {
   const { data: session } = await auth.getSession();
   const userId = session?.user?.id;
   if (!userId) throw new Error("Authentication required.");
   return userId;
+}
+
+function requireUuid(value: FormDataEntryValue | null, label: string): string {
+  const id = String(value || "");
+  if (!UUID_PATTERN.test(id)) throw new Error(`${label} invalide.`);
+  return id;
 }
 
 export async function createWatchlistAction(formData: FormData) {
@@ -51,24 +59,21 @@ export async function addCompanyToWatchlistAction(formData: FormData) {
 
 export async function markAlertReadAction(formData: FormData) {
   const userId = await requireUserId();
-  const alertId = String(formData.get("alertId") || "");
-  if (!alertId) throw new Error("Alerte requise.");
+  const alertId = requireUuid(formData.get("alertId"), "Alerte");
   await markAlertRead({ userId, alertId });
   revalidatePath("/workspace");
 }
 
 export async function archiveAlertAction(formData: FormData) {
   const userId = await requireUserId();
-  const alertId = String(formData.get("alertId") || "");
-  if (!alertId) throw new Error("Alerte requise.");
+  const alertId = requireUuid(formData.get("alertId"), "Alerte");
   await archiveAlert({ userId, alertId });
   revalidatePath("/workspace");
 }
 
 export async function markAllAlertsReadAction(formData: FormData) {
   const userId = await requireUserId();
-  const workspaceId = String(formData.get("workspaceId") || "");
-  if (!workspaceId) throw new Error("Workspace requis.");
+  const workspaceId = requireUuid(formData.get("workspaceId"), "Workspace");
   await markAllWorkspaceAlertsRead({ userId, workspaceId });
   revalidatePath("/workspace");
 }
