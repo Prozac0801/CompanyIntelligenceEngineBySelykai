@@ -34,8 +34,8 @@ import {
   legalFormLabel,
 } from "@/lib/intelligence/labels";
 import { loadCompanyTimeline } from "@/lib/persistence/company-repository";
-import { commercialReuseDecision } from "@/lib/providers";
 import type { IntelligenceScoreId } from "@/types/company";
+import type { CommercialActionPolicy } from "@/types/intelligence";
 
 function formatCurrency(value?: number): string {
   if (value === undefined) return "—";
@@ -63,7 +63,12 @@ function scoreIcon(id: IntelligenceScoreId) {
   return BadgeCheck;
 }
 
-function opportunityLabel(status: "triggered" | "watch" | "not-determined") {
+function opportunityLabel(
+  status: "triggered" | "watch" | "not-determined",
+  commercialStatus: CommercialActionPolicy["status"],
+) {
+  if (commercialStatus === "blocked") return "Veille uniquement";
+  if (commercialStatus === "unknown") return "Action suspendue";
   if (status === "triggered") return "Déclencheur détecté";
   if (status === "watch") return "À surveiller";
   return "Non déterminée";
@@ -74,9 +79,9 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
   const analysis = await analyzeCompany(siren);
   if (!analysis) notFound();
 
-  const { company, enrichment, score, signals, meta, facts, summary } = analysis;
+  const { company, enrichment, score, signals, meta, facts, summary, commercialAction } = analysis;
   const timeline = meta.databaseConfigured ? await loadCompanyTimeline(siren) : [];
-  const reuse = commercialReuseDecision(facts);
+  const reuse = commercialAction;
   const web = enrichment.web;
   const officialActivity = activityLabel(company.nafCode, company.activityLabel);
   const legalForm = legalFormLabel(company.legalForm);
@@ -100,6 +105,12 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
       : reuse.status === "allowed"
         ? "Aucune opposition RNE détectée"
         : "Statut de prospection non vérifié";
+  const webProofLabel = web?.descriptionSource === "first-party-site"
+    ? "Domaine confirmé par le site de première partie."
+    : "Domaine confirmé par une preuve web indépendante.";
+  const webDescriptionLabel = web?.descriptionSource === "first-party-site"
+    ? "Extrait du site vérifié"
+    : "Extrait web recoupé";
 
   return (
     <AppShell>
@@ -118,10 +129,10 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
               {company.companyCategory ? <span>{company.companyCategory}</span> : null}
             </div>
           </div>
-          <div className={`opportunity-decision ${score.opportunity.status}`}>
+          <div className={`opportunity-decision ${score.opportunity.status} policy-${reuse.status}`}>
             <span>Décision commerciale</span>
-            <strong>{opportunityLabel(score.opportunity.status)}</strong>
-            {score.opportunity.value !== undefined ? <b>{score.opportunity.value}/100</b> : null}
+            <strong>{opportunityLabel(score.opportunity.status, reuse.status)}</strong>
+            {score.opportunity.value !== undefined && reuse.status === "allowed" ? <b>{score.opportunity.value}/100</b> : null}
             <p>{score.opportunity.reason}</p>
             <small>Confiance données : {score.basis.coveragePercent}%</small>
           </div>
@@ -151,7 +162,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
           <div className="next-best-action"><Target size={18} /><div><span>Next best action</span><strong>{summary.nextBestAction}</strong></div></div>
         </section>
 
-        <section className="intelligence-score-strip" aria-label="Indicateurs Intelligence V0.4.1">
+        <section className="intelligence-score-strip" aria-label="Indicateurs Intelligence V0.5.4">
           {score.subscores.map((subscore) => {
             const Icon = scoreIcon(subscore.id);
             const value = subscore.value;
@@ -316,11 +327,11 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
                     <strong>{web.domain || "Domaine non résolu"}</strong>
                     <p>{officialActivity || "Activité officielle non libellée"}</p>
                     {web.domain && !web.domainVerified ? <small className="web-caveat-v041">Candidat proposé par Hunter ; aucune donnée commerciale dérivée n’est utilisée tant qu’une seconde source ne confirme pas ce domaine.</small> : null}
-                    {web.domainVerified ? <small className="web-proof-v041"><BadgeCheck size={13} /> Domaine confirmé indépendamment par Hunter + SERP.</small> : null}
+                    {web.domainVerified ? <small className="web-proof-v041"><BadgeCheck size={13} /> {webProofLabel}</small> : null}
                   </div>
                   {web.websiteUrl ? <a href={web.websiteUrl} target="_blank" rel="noreferrer" aria-label="Ouvrir le site candidat"><ExternalLink size={16} /></a> : null}
                 </div>
-                {web.description ? <blockquote className="serp-snippet"><strong>Extrait SERP recoupé</strong><br />{web.description}</blockquote> : null}
+                {web.description ? <blockquote className="serp-snippet"><strong>{webDescriptionLabel}</strong><br />{web.description}</blockquote> : null}
                 <div className="web-kpis">
                   <div><span>SERP</span><strong>{web.serpPosition ? `#${web.serpPosition}` : "—"}</strong></div>
                   <div><span>Emails génériques validés</span><strong>{web.genericEmails.length}</strong></div>
@@ -337,10 +348,20 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
         </section>
 
         <section className="v04-section" id="contacts">
-          <div className="v04-section-heading"><span>06</span><div><h2>Contacts</h2><p>Enrichissement professionnel uniquement à la demande et sur domaine recoupé.</p></div></div>
+          <div className="v04-section-heading"><span>06</span><div><h2>Contacts</h2><p>Enrichissement professionnel uniquement à la demande, sur domaine recoupé et lorsque le cadre RNE l’autorise explicitement.</p></div></div>
           <article className="detail-panel">
-            {web?.domain && !web.domainVerified ? <p className="data-caveat">Le domaine candidat doit être recoupé avant tout enrichissement de contacts. Aucun crédit Hunter Contacts ne sera consommé sur un domaine non vérifié.</p> : null}
-            <ContactReveal siren={company.siren} domain={web?.domainVerified ? web.domain : undefined} />
+            {reuse.status !== "allowed" ? (
+              <div className={`reuse-status ${reuse.status}`}>
+                <strong>{reuse.status === "blocked" ? "Contacts désactivés — veille uniquement" : "Contacts suspendus — statut non confirmé"}</strong>
+                <p>{reuse.reason}</p>
+                <small>Aucun crédit Hunter Contacts n’est consommé dans cet état.</small>
+              </div>
+            ) : (
+              <>
+                {web?.domain && !web.domainVerified ? <p className="data-caveat">Le domaine candidat doit être recoupé avant tout enrichissement de contacts. Aucun crédit Hunter Contacts ne sera consommé sur un domaine non vérifié.</p> : null}
+                <ContactReveal siren={company.siren} domain={web?.domainVerified ? web.domain : undefined} />
+              </>
+            )}
           </article>
         </section>
 
