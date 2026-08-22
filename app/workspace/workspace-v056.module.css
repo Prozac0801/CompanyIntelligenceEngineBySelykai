@@ -119,16 +119,40 @@
 .alertMeta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 7px;
   margin-top: 8px;
   color: #8c959c;
   font-size: 9px;
 }
 
-.alertMeta b {
-  font-weight: 700;
+.severityBadge {
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 750;
   text-transform: uppercase;
   letter-spacing: .05em;
+}
+
+.severityInfo {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.severityMedium {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.severityHigh {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.severityCritical {
+  background: #1f2937;
+  color: #fff;
 }
 
 .alertActions {
