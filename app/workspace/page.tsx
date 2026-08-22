@@ -1,17 +1,39 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Bell, Building2, LogOut, Plus, Radar, ShieldCheck } from "lucide-react";
+import {
+  Archive,
+  Bell,
+  Building2,
+  Check,
+  CheckCheck,
+  LogOut,
+  Plus,
+  Radar,
+  ShieldCheck,
+} from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { auth } from "@/lib/auth/server";
 import {
-  listWatchlistCompanies,
-  listWorkspaceAlerts,
-} from "@/lib/persistence/watchlist-repository";
+  countUnreadWorkspaceAlerts,
+  listWorkspaceInboxAlerts,
+} from "@/lib/persistence/alert-repository";
+import { listWatchlistCompanies } from "@/lib/persistence/watchlist-repository";
 import { ensurePersonalWorkspace } from "@/lib/workspaces/bootstrap";
-import { addCompanyToWatchlistAction, createWatchlistAction } from "./actions";
+import {
+  addCompanyToWatchlistAction,
+  archiveAlertAction,
+  createWatchlistAction,
+  markAlertReadAction,
+  markAllAlertsReadAction,
+} from "./actions";
 import { signOut } from "@/app/auth/actions";
+import styles from "./workspace-v056.module.css";
 
 export const dynamic = "force-dynamic";
+
+function frequencyLabel(value: "daily" | "weekly" | "manual") {
+  return value === "daily" ? "quotidien" : value === "weekly" ? "hebdomadaire" : "manuel";
+}
 
 export default async function WorkspacePage() {
   const { data: session } = await auth.getSession();
@@ -22,14 +44,21 @@ export default async function WorkspacePage() {
     userName: session.user.name,
   });
   const activeWatchlist = watchlists[0];
-  const companies = activeWatchlist
-    ? await listWatchlistCompanies(session.user.id, activeWatchlist.id)
-    : [];
-  const alerts = await listWorkspaceAlerts({
-    userId: session.user.id,
-    workspaceId: workspace.id,
-    limit: 12,
-  });
+
+  const [companies, alerts, unreadCount] = await Promise.all([
+    activeWatchlist
+      ? listWatchlistCompanies(session.user.id, activeWatchlist.id)
+      : Promise.resolve([]),
+    listWorkspaceInboxAlerts({
+      userId: session.user.id,
+      workspaceId: workspace.id,
+      limit: 20,
+    }),
+    countUnreadWorkspaceAlerts({
+      userId: session.user.id,
+      workspaceId: workspace.id,
+    }),
+  ]);
 
   return (
     <AppShell>
@@ -45,7 +74,7 @@ export default async function WorkspacePage() {
 
         <section className="workspace-metrics">
           <div><Radar size={18} /><span>Entreprises suivies</span><strong>{companies.length}</strong></div>
-          <div><Bell size={18} /><span>Alertes</span><strong>{alerts.filter((item) => item.status === "unread").length}</strong></div>
+          <div><Bell size={18} /><span>Alertes non lues</span><strong>{unreadCount}</strong></div>
           <div><ShieldCheck size={18} /><span>Isolation</span><strong>Workspace</strong></div>
         </section>
 
@@ -71,21 +100,60 @@ export default async function WorkspacePage() {
               {companies.length ? companies.map((company) => (
                 <Link href={`/company/${company.siren}`} key={`${company.watchlistId}-${company.companyId}`} className="watch-company-row">
                   <div><strong>{company.name}</strong><span className="mono">SIREN {company.siren}</span></div>
-                  <div><span>{company.monitorFrequency === "daily" ? "quotidien" : company.monitorFrequency === "weekly" ? "hebdomadaire" : "manuel"}</span><small>{company.nextCheckAt ? `prochain contrôle ${new Date(company.nextCheckAt).toLocaleString("fr-FR")}` : "pas de contrôle automatique"}</small></div>
+                  <div><span>{frequencyLabel(company.monitorFrequency)}</span><small>{company.nextCheckAt ? `prochain contrôle ${new Date(company.nextCheckAt).toLocaleString("fr-FR")}` : "pas de contrôle automatique"}</small></div>
                 </Link>
               )) : <p className="empty-copy">Aucune entreprise suivie. Ajoutez un SIREN pour lancer la première observation.</p>}
             </div>
           </section>
 
           <section className="detail-panel workspace-alert-panel">
-            <div className="panel-title-row"><h2><Bell size={16} /> Alertes récentes</h2><span>{alerts.length}</span></div>
-            <div className="workspace-alert-list">
+            <div className={styles.alertPanelHeader}>
+              <h2><Bell size={16} /> Boîte d’alertes</h2>
+              <div className={styles.alertPanelTools}>
+                <span>{unreadCount} non lue{unreadCount > 1 ? "s" : ""}</span>
+                {unreadCount > 0 ? (
+                  <form action={markAllAlertsReadAction}>
+                    <input type="hidden" name="workspaceId" value={workspace.id} />
+                    <button className={styles.batchButton} type="submit"><CheckCheck size={13} /> Tout marquer lu</button>
+                  </form>
+                ) : null}
+              </div>
+            </div>
+
+            <div className={styles.alertList}>
               {alerts.length ? alerts.map((alert) => (
-                <Link href={`/company/${alert.siren}`} key={alert.id} className={`workspace-alert-row severity-${alert.severity}`}>
-                  <div><strong>{alert.title}</strong><span>{alert.companyName}</span></div>
-                  <small>{new Date(alert.createdAt).toLocaleString("fr-FR")}</small>
-                </Link>
-              )) : <p className="empty-copy">Aucune alerte. Elles apparaîtront lorsqu’un changement réel sera détecté sur une entreprise surveillée.</p>}
+                <article
+                  key={alert.id}
+                  className={`${styles.alertCard} ${alert.status === "unread" ? styles.alertCardUnread : ""}`}
+                >
+                  <Link href={`/company/${alert.siren}`} className={styles.alertMain}>
+                    <div className={styles.alertTitleLine}>
+                      {alert.status === "unread" ? <span className={styles.unreadDot} aria-label="Non lue" /> : null}
+                      <strong>{alert.title}</strong>
+                    </div>
+                    <span className={styles.alertCompany}>{alert.companyName}</span>
+                    {alert.body ? <p className={styles.alertBody}>{alert.body}</p> : null}
+                    <span className={styles.alertMeta}>
+                      <span>{new Date(alert.createdAt).toLocaleString("fr-FR")}</span>
+                      <b>{alert.severity}</b>
+                      <span>{alert.status === "unread" ? "nouvelle" : "lue"}</span>
+                    </span>
+                  </Link>
+
+                  <div className={styles.alertActions}>
+                    {alert.status === "unread" ? (
+                      <form action={markAlertReadAction}>
+                        <input type="hidden" name="alertId" value={alert.id} />
+                        <button className={styles.alertAction} type="submit" title="Marquer comme lue" aria-label="Marquer comme lue"><Check size={14} /></button>
+                      </form>
+                    ) : null}
+                    <form action={archiveAlertAction}>
+                      <input type="hidden" name="alertId" value={alert.id} />
+                      <button className={`${styles.alertAction} ${styles.archiveAction}`} type="submit" title="Archiver" aria-label="Archiver"><Archive size={14} /></button>
+                    </form>
+                  </div>
+                </article>
+              )) : <p className={styles.emptyState}>Aucune alerte active. Les changements réellement détectés apparaîtront ici ; les éléments archivés ne polluent plus la boîte d’alertes.</p>}
             </div>
           </section>
         </div>
