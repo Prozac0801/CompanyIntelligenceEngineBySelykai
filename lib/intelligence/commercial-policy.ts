@@ -28,7 +28,7 @@ export function applyCommercialActionPolicyToScore(
   if (policy.status === "allowed") {
     return {
       ...score,
-      version: "intelligence-v0.5.4",
+      version: "intelligence-v0.5.5",
       subscores,
       basis: {
         ...score.basis,
@@ -40,7 +40,7 @@ export function applyCommercialActionPolicyToScore(
   const blocked = policy.status === "blocked";
   return {
     ...score,
-    version: "intelligence-v0.5.4",
+    version: "intelligence-v0.5.5",
     label: blocked
       ? "Veille uniquement — prospection bloquée"
       : "Veille uniquement — statut de prospection non confirmé",
