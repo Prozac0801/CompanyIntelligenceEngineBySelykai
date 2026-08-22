@@ -31,7 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-bottom">
           <div className="engine-state">
             <Activity size={17} />
-            <div><strong>Engine V0.5.5</strong><span>policy-aware monitoring · momentum precision</span></div>
+            <div><strong>Engine V0.5.6</strong><span>alert triage · policy-aware monitoring</span></div>
           </div>
           <div className="side-footer"><Settings2 size={15} /> facts · triggers · risk · confidence</div>
         </div>
