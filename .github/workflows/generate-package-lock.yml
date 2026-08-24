@@ -3,39 +3,36 @@ name: Generate package lock
 on:
   push:
     branches: ["chore/runtime-hardening-v0.5.9"]
-  pull_request:
-    branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   lock:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: Checkout branch
         uses: actions/checkout@v4
+        with:
+          ref: chore/runtime-hardening-v0.5.9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Inspect Better Auth 1.6.23 peers
-        run: |
-          echo '@better-auth/api-key@1.6.23'
-          npm view @better-auth/api-key@1.6.23 peerDependencies --json
-          echo '@better-auth/core@1.6.23'
-          npm view @better-auth/core@1.6.23 peerDependencies --json
-
       - name: Generate package-lock.json
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
-      - name: Upload package lock
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-lock
-          path: package-lock.json
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit package lock when changed
+        run: |
+          if [ -n "$(git status --porcelain package-lock.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: lock npm dependency tree [skip ci]"
+            git push origin HEAD:chore/runtime-hardening-v0.5.9
+          else
+            echo "package-lock.json already up to date"
+          fi
