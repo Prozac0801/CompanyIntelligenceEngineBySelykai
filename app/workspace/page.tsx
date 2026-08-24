@@ -19,6 +19,7 @@ import {
 } from "@/lib/persistence/alert-repository";
 import { getWatchlistCompanyCounts } from "@/lib/persistence/watchlist-overview-repository";
 import { listWatchlistCompanies } from "@/lib/persistence/watchlist-repository";
+import { workspaceFeedbackMessage } from "@/lib/workspaces/action-feedback";
 import { ensurePersonalWorkspace } from "@/lib/workspaces/bootstrap";
 import type { AlertSeverity } from "@/types/workspace";
 import {
@@ -52,14 +53,14 @@ function severityBadgeClass(value: AlertSeverity) {
   return styles.severityInfo;
 }
 
-function selectedWatchlistId(value?: string | string[]): string | undefined {
+function firstValue(value?: string | string[]): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
 export default async function WorkspacePage({
   searchParams,
 }: {
-  searchParams: Promise<{ watchlist?: string | string[] }>;
+  searchParams: Promise<{ watchlist?: string | string[]; error?: string | string[] }>;
 }) {
   const { data: session } = await auth.getSession();
   if (!session?.user) redirect("/auth/sign-in");
@@ -69,7 +70,8 @@ export default async function WorkspacePage({
     userName: session.user.name,
   });
   const query = await searchParams;
-  const requestedWatchlistId = selectedWatchlistId(query.watchlist);
+  const requestedWatchlistId = firstValue(query.watchlist);
+  const feedback = workspaceFeedbackMessage(firstValue(query.error));
   const activeWatchlist =
     watchlists.find((watchlist) => watchlist.id === requestedWatchlistId) || watchlists[0];
 
@@ -103,6 +105,10 @@ export default async function WorkspacePage({
           </div>
           <form action={signOut}><button className="ghost-button" type="submit"><LogOut size={15} /> Déconnexion</button></form>
         </header>
+
+        {feedback ? (
+          <div className="error-banner workspace-action-feedback" role="alert">{feedback}</div>
+        ) : null}
 
         {watchlists.length ? (
           <section className={navStyles.watchlistNavigator} aria-label="Navigation entre les watchlists">
