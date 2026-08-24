@@ -1,0 +1,161 @@
+.dock {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 70;
+  width: min(620px, calc(100vw - 44px));
+  padding: 12px;
+  border: 1px solid rgba(31, 39, 44, .14);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 20px 54px rgba(12, 18, 22, .18);
+  backdrop-filter: blur(18px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.identity {
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 2px;
+}
+
+.icon {
+  width: 35px;
+  height: 35px;
+  flex: 0 0 35px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: #111619;
+  color: #b8ff3d;
+}
+
+.identity strong,
+.identity small {
+  display: block;
+}
+
+.identity strong {
+  font-size: 11px;
+  letter-spacing: -.01em;
+}
+
+.identity small {
+  max-width: 220px;
+  margin-top: 3px;
+  color: #748089;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.primaryLink,
+.form button {
+  border: 0;
+  min-height: 39px;
+  border-radius: 11px;
+  background: #111619;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  font-size: 10px;
+  font-weight: 680;
+  white-space: nowrap;
+}
+
+.primaryLink {
+  margin-left: auto;
+}
+
+.form {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) 112px auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.form label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.form label > span {
+  padding-left: 2px;
+  color: #7c878f;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.form select {
+  width: 100%;
+  min-width: 0;
+  height: 39px;
+  border: 1px solid #dce2e6;
+  border-radius: 10px;
+  background: #f8fafb;
+  color: #293137;
+  padding: 0 9px;
+  outline: 0;
+  font: inherit;
+  font-size: 10px;
+}
+
+.form select:focus {
+  border-color: #aab5bc;
+  box-shadow: 0 0 0 3px rgba(36, 107, 253, .08);
+}
+
+@media (max-width: 820px) {
+  .dock {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .identity {
+    min-width: 0;
+  }
+
+  .identity small {
+    max-width: none;
+  }
+
+  .primaryLink {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .form {
+    grid-template-columns: minmax(0, 1fr) 105px;
+  }
+
+  .form button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+@media (max-width: 440px) {
+  .form {
+    grid-template-columns: 1fr;
+  }
+
+  .form button {
+    grid-column: auto;
+  }
+}
