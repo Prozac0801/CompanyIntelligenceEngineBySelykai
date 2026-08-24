@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Building2,
@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import { latestRequestWins } from "@/lib/search/request-order";
 import type { CompanySummary } from "@/types/company";
 
 interface SearchPayload {
@@ -29,10 +30,6 @@ const SEARCH_PHASES = [
   { label: "Préparation des résultats", detail: "Provenance et qualité" },
 ] as const;
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function SearchCommand() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CompanySummary[]>([]);
@@ -41,6 +38,8 @@ export function SearchCommand() {
   const [phaseIndex, setPhaseIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const currentRequestId = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!loading) return;
@@ -50,30 +49,44 @@ export function SearchCommand() {
     return () => window.clearInterval(timer);
   }, [loading]);
 
+  useEffect(() => () => activeRequest.current?.abort(), []);
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const q = query.trim();
     if (q.length < 2) return;
 
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const requestId = currentRequestId.current + 1;
+    currentRequestId.current = requestId;
+
     setPhaseIndex(0);
     setLoading(true);
     setError(null);
     setHasSearched(true);
-    const startedAt = performance.now();
+
     try {
-      const response = await fetch(`/api/v1/companies/search?q=${encodeURIComponent(q)}`);
+      const response = await fetch(`/api/v1/companies/search?q=${encodeURIComponent(q)}`, {
+        signal: controller.signal,
+      });
       const payload = (await response.json()) as SearchPayload;
       if (!response.ok) throw new Error(payload.error || "Recherche indisponible");
-      const elapsed = performance.now() - startedAt;
-      if (elapsed < 720) await sleep(720 - elapsed);
+      if (!latestRequestWins(requestId, currentRequestId.current)) return;
       setResults(payload.results || []);
       setTotal(payload.total || 0);
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      if (!latestRequestWins(requestId, currentRequestId.current)) return;
       setResults([]);
       setTotal(0);
       setError(caught instanceof Error ? caught.message : "Recherche indisponible");
     } finally {
-      setLoading(false);
+      if (latestRequestWins(requestId, currentRequestId.current)) {
+        if (activeRequest.current === controller) activeRequest.current = null;
+        setLoading(false);
+      }
     }
   }
 
