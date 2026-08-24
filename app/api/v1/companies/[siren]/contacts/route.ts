@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/server";
-import { analyzeCompany } from "@/lib/intelligence/company-engine";
-import { commercialReuseDecision, getHunterContacts } from "@/lib/providers";
+import { resolveContactEligibility } from "@/lib/intelligence/contact-eligibility";
+import { getHunterContacts } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
+
+const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" } as const;
 
 export async function GET(
   request: Request,
@@ -13,19 +15,21 @@ export async function GET(
   if (!session?.user) {
     return NextResponse.json(
       { error: "authentication_required" },
-      { status: 401, headers: { "Cache-Control": "private, no-store" } },
+      { status: 401, headers: PRIVATE_HEADERS },
     );
   }
 
   const { siren } = await params;
   if (!/^\d{9}$/.test(siren)) {
-    return NextResponse.json({ error: "invalid_siren" }, { status: 400 });
+    return NextResponse.json({ error: "invalid_siren" }, { status: 400, headers: PRIVATE_HEADERS });
   }
 
-  const analysis = await analyzeCompany(siren, { persist: false });
-  if (!analysis) return NextResponse.json({ error: "company_not_found" }, { status: 404 });
+  const eligibility = await resolveContactEligibility(siren);
+  if (!eligibility) {
+    return NextResponse.json({ error: "company_not_found" }, { status: 404, headers: PRIVATE_HEADERS });
+  }
 
-  const reuse = analysis.commercialAction || commercialReuseDecision(analysis.facts);
+  const reuse = eligibility.policy;
   if (reuse.status !== "allowed") {
     return NextResponse.json(
       {
@@ -33,15 +37,15 @@ export async function GET(
         reason: reuse.reason,
         policyStatus: reuse.status,
       },
-      { status: 403, headers: { "Cache-Control": "private, no-store" } },
+      { status: 403, headers: PRIVATE_HEADERS },
     );
   }
 
-  const domain = analysis.enrichment.web?.domain;
+  const domain = eligibility.domain;
   if (!domain) {
     return NextResponse.json(
       { error: "domain_not_resolved" },
-      { status: 404, headers: { "Cache-Control": "private, no-store" } },
+      { status: 404, headers: PRIVATE_HEADERS },
     );
   }
 
@@ -56,8 +60,9 @@ export async function GET(
       contacts,
       count: contacts.length,
       policyStatus: reuse.status,
+      eligibilitySource: eligibility.source,
       dataPolicy: "Contacts professionnels révélés à la demande uniquement lorsque le statut de réutilisation commerciale RNE est explicitement autorisé. Aucun enrichissement personnel massif n’est lancé automatiquement.",
     },
-    { headers: { "Cache-Control": "private, no-store" } },
+    { headers: PRIVATE_HEADERS },
   );
 }
