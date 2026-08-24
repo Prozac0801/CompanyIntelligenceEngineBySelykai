@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { hasDatabase, sqlClient } from "@/lib/db";
 import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 
@@ -18,9 +19,10 @@ export interface ProviderRunInput {
   estimatedCostEur?: number;
 }
 
-export async function recordProviderRun(input: ProviderRunInput): Promise<void> {
-  if (!hasDatabase() || !canWriteRuntimeState()) return;
+type ProviderRunTask = () => Promise<void>;
+type ProviderRunScheduler = (task: ProviderRunTask) => void;
 
+async function persistProviderRun(input: ProviderRunInput): Promise<void> {
   try {
     const sql = sqlClient();
     await sql`
@@ -39,6 +41,22 @@ export async function recordProviderRun(input: ProviderRunInput): Promise<void> 
       error instanceof Error ? error.message : "unknown_error",
     );
   }
+}
+
+export async function deferProviderRun(
+  persist: ProviderRunTask,
+  schedule: ProviderRunScheduler = after,
+): Promise<void> {
+  try {
+    schedule(persist);
+  } catch {
+    await persist();
+  }
+}
+
+export async function recordProviderRun(input: ProviderRunInput): Promise<void> {
+  if (!hasDatabase() || !canWriteRuntimeState()) return;
+  await deferProviderRun(() => persistProviderRun(input));
 }
 
 export function providerStatusFromHttp(status: number): ProviderRunStatus {
