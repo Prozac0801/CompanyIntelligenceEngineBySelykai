@@ -76,11 +76,13 @@ function opportunityLabel(
 
 export default async function CompanyPage({ params }: { params: Promise<{ siren: string }> }) {
   const { siren } = await params;
-  const analysis = await analyzeCompany(siren);
+  const [analysis, timeline] = await Promise.all([
+    analyzeCompany(siren),
+    loadCompanyTimeline(siren),
+  ]);
   if (!analysis) notFound();
 
   const { company, enrichment, score, signals, meta, facts, summary, commercialAction } = analysis;
-  const timeline = meta.databaseConfigured ? await loadCompanyTimeline(siren) : [];
   const reuse = commercialAction;
   const web = enrichment.web;
   const officialActivity = activityLabel(company.nafCode, company.activityLabel);
