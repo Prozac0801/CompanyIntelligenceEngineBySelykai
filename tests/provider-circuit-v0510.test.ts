@@ -4,6 +4,7 @@ import {
   capabilityCacheKey,
   capabilityStateFromHttp,
 } from "@/lib/providers/capability-state";
+import { getProviderCatalog } from "@/lib/providers/catalog";
 
 describe("provider capability circuits v0.5.10", () => {
   const now = Date.parse("2026-08-24T10:00:00.000Z");
@@ -29,5 +30,16 @@ describe("provider capability circuits v0.5.10", () => {
     expect(state.status).toBe("rate_limited");
     expect(capabilityAllowsRequest(state, now + 60_000)).toBe(false);
     expect(capabilityAllowsRequest(state, now + 5 * 60 * 1000 + 1)).toBe(true);
+  });
+
+  it("does not claim the whole APILayer family is live merely because a key exists", () => {
+    const previous = process.env.APILAYER_API_KEY;
+    process.env.APILAYER_API_KEY = "configured-for-test";
+    try {
+      expect(getProviderCatalog().find((provider) => provider.id === "apilayer")?.status).toBe("configured");
+    } finally {
+      if (previous === undefined) delete process.env.APILAYER_API_KEY;
+      else process.env.APILAYER_API_KEY = previous;
+    }
   });
 });
