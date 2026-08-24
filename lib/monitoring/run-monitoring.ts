@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { analyzeCompany } from "@/lib/intelligence/company-engine";
 import {
+  mapWithConcurrency,
+  monitoringFailureDelayMinutes,
+  normalizeMonitoringConcurrency,
+} from "@/lib/monitoring/concurrency";
+import {
   createIntelligenceAlert,
   listDueMonitoringTargets,
   markMonitoringTargetChecked,
+  markMonitoringTargetFailed,
 } from "@/lib/persistence/watchlist-repository";
 import type { CommercialActionPolicy, CompanyEvent } from "@/types/intelligence";
 import type { AlertSeverity, MonitoringTarget } from "@/types/workspace";
@@ -13,6 +19,7 @@ export interface MonitoringBatchResult {
   companies: number;
   analyzed: number;
   alertsCreated: number;
+  concurrency: number;
   failures: Array<{ siren: string; message: string }>;
 }
 
@@ -81,6 +88,44 @@ function dedupeKey(target: MonitoringTarget, event: CompanyEvent): string {
     .digest("hex");
 }
 
+async function processCompanyTargets(
+  siren: string,
+  companyTargets: MonitoringTarget[],
+  result: MonitoringBatchResult,
+): Promise<void> {
+  try {
+    const analysis = await analyzeCompany(siren, { persist: true, intent: "monitoring" });
+    if (!analysis) throw new Error("Entreprise introuvable pendant la surveillance.");
+    result.analyzed += 1;
+
+    for (const target of companyTargets) {
+      for (const event of analysis.events) {
+        const presentation = monitoringAlertPresentation(event, analysis.commercialAction);
+        const created = await createIntelligenceAlert({
+          workspaceId: target.workspaceId,
+          watchlistId: target.watchlistId,
+          companyId: target.companyId,
+          type: event.type,
+          severity: presentation.severity,
+          title: presentation.title,
+          body: presentation.body,
+          dedupeKey: dedupeKey(target, event),
+        });
+        if (created) result.alertsCreated += 1;
+      }
+
+      await markMonitoringTargetChecked(target);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown_error";
+    const retryDelay = monitoringFailureDelayMinutes(message);
+    result.failures.push({ siren, message });
+    await Promise.all(
+      companyTargets.map((target) => markMonitoringTargetFailed(target, retryDelay)),
+    );
+  }
+}
+
 export async function runMonitoringBatch(limit = 20): Promise<MonitoringBatchResult> {
   const targets = await listDueMonitoringTargets(limit);
   const grouped = new Map<string, MonitoringTarget[]>();
@@ -91,46 +136,21 @@ export async function runMonitoringBatch(limit = 20): Promise<MonitoringBatchRes
     grouped.set(target.siren, current);
   }
 
+  const concurrency = normalizeMonitoringConcurrency(process.env.MONITOR_CONCURRENCY);
   const result: MonitoringBatchResult = {
     targets: targets.length,
     companies: grouped.size,
     analyzed: 0,
     alertsCreated: 0,
+    concurrency,
     failures: [],
   };
 
-  // Sequential by design: protects provider rate limits and keeps scheduled runs predictable.
-  for (const [siren, companyTargets] of grouped) {
-    try {
-      const analysis = await analyzeCompany(siren, { persist: true, intent: "monitoring" });
-      if (!analysis) throw new Error("Entreprise introuvable pendant la surveillance.");
-      result.analyzed += 1;
-
-      for (const target of companyTargets) {
-        for (const event of analysis.events) {
-          const presentation = monitoringAlertPresentation(event, analysis.commercialAction);
-          const created = await createIntelligenceAlert({
-            workspaceId: target.workspaceId,
-            watchlistId: target.watchlistId,
-            companyId: target.companyId,
-            type: event.type,
-            severity: presentation.severity,
-            title: presentation.title,
-            body: presentation.body,
-            dedupeKey: dedupeKey(target, event),
-          });
-          if (created) result.alertsCreated += 1;
-        }
-
-        await markMonitoringTargetChecked(target);
-      }
-    } catch (error) {
-      result.failures.push({
-        siren,
-        message: error instanceof Error ? error.message : "unknown_error",
-      });
-    }
-  }
+  await mapWithConcurrency(
+    Array.from(grouped.entries()),
+    concurrency,
+    async ([siren, companyTargets]) => processCompanyTargets(siren, companyTargets, result),
+  );
 
   return result;
 }
