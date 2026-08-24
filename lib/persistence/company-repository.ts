@@ -1,5 +1,12 @@
-import { createHash } from "node:crypto";
 import { hasDatabase, sqlClient } from "@/lib/db";
+import {
+  buildEstablishmentRows,
+  buildEventRows,
+  buildFactRows,
+  buildSignalRows,
+  snapshotHash,
+  stableSnapshotPayload,
+} from "@/lib/persistence/company-batch-write";
 import type {
   CompanyEnrichment,
   CompanyProfile,
@@ -19,24 +26,6 @@ interface LatestFactRow {
   provider_name: string;
   provider_kind: SourceKind;
   fingerprint: string;
-}
-
-function hash(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
-function stableSnapshotPayload(facts: CompanyFact[]) {
-  return facts
-    .map((fact) => ({ key: fact.key, value: fact.value, fingerprint: fact.fingerprint }))
-    .sort((a, b) => a.key.localeCompare(b.key));
-}
-
-function eventFingerprint(event: CompanyEvent): string {
-  return hash({
-    type: event.type,
-    description: event.description,
-    evidenceKeys: [...event.evidenceKeys].sort(),
-  });
 }
 
 export async function loadLatestFacts(siren: string): Promise<Map<string, CompanyFact>> {
@@ -143,18 +132,30 @@ export async function persistCompanyAnalysis(input: {
     `;
   }
 
-  for (const establishment of company.establishments) {
-    if (!establishment.siret) continue;
+  const establishmentRows = buildEstablishmentRows(company.establishments);
+  if (establishmentRows.length) {
     await sql`
+      WITH input AS (
+        SELECT *
+        FROM jsonb_to_recordset(${JSON.stringify(establishmentRows)}::jsonb) AS x(
+          siret text,
+          "isHeadOffice" boolean,
+          "administrativeState" text,
+          "nafCode" text,
+          address text,
+          "postalCode" text,
+          city text,
+          "openingDate" text
+        )
+      )
       INSERT INTO establishments (
         company_id, siret, is_head_office, administrative_state, naf_code,
         address, postal_code, city, opening_date, last_observed_at
-      ) VALUES (
-        ${companyId}, ${establishment.siret}, ${establishment.headOffice ?? false},
-        ${establishment.active === undefined ? null : establishment.active ? "active" : "closed"},
-        ${establishment.nafCode || null}, ${establishment.address || null}, ${establishment.postalCode || null},
-        ${establishment.city || null}, ${establishment.createdAt || null}, now()
       )
+      SELECT
+        ${companyId}, siret, "isHeadOffice", "administrativeState", "nafCode",
+        address, "postalCode", city, NULLIF("openingDate", '')::date, now()
+      FROM input
       ON CONFLICT (siret) DO UPDATE SET
         company_id = EXCLUDED.company_id,
         is_head_office = EXCLUDED.is_head_office,
@@ -168,16 +169,29 @@ export async function persistCompanyAnalysis(input: {
     `;
   }
 
-  for (const fact of facts) {
-    const providerId = fact.evidence.providerId || "recherche-entreprises";
+  const factRows = buildFactRows(facts);
+  if (factRows.length) {
     await sql`
+      WITH input AS (
+        SELECT *
+        FROM jsonb_to_recordset(${JSON.stringify(factRows)}::jsonb) AS x(
+          "providerId" text,
+          "factType" text,
+          "factKey" text,
+          value jsonb,
+          confidence numeric,
+          "sourceUrl" text,
+          fingerprint text
+        )
+      )
       INSERT INTO company_facts (
         company_id, provider_id, fact_type, fact_key, value, confidence,
         source_url, first_observed_at, last_observed_at, fingerprint
-      ) VALUES (
-        ${companyId}, ${providerId}, ${fact.type}, ${fact.key}, ${JSON.stringify(fact.value)}::jsonb,
-        ${fact.evidence.confidence}, ${fact.evidence.sourceUrl || null}, now(), now(), ${fact.fingerprint}
       )
+      SELECT
+        ${companyId}, "providerId", "factType", "factKey", value, confidence,
+        "sourceUrl", now(), now(), fingerprint
+      FROM input
       ON CONFLICT (company_id, provider_id, fingerprint) DO UPDATE SET
         last_observed_at = now(),
         confidence = GREATEST(company_facts.confidence, EXCLUDED.confidence),
@@ -186,35 +200,62 @@ export async function persistCompanyAnalysis(input: {
   }
 
   const snapshot = stableSnapshotPayload(facts);
-  const snapshotHash = hash(snapshot);
+  const snapshotDigest = snapshotHash(facts);
   await sql`
     INSERT INTO company_snapshots (company_id, snapshot_hash, facts, first_captured_at, last_captured_at)
-    VALUES (${companyId}, ${snapshotHash}, ${JSON.stringify(snapshot)}::jsonb, now(), now())
+    VALUES (${companyId}, ${snapshotDigest}, ${JSON.stringify(snapshot)}::jsonb, now(), now())
     ON CONFLICT (company_id, snapshot_hash) DO UPDATE SET last_captured_at = now()
   `;
 
   const defaultProviderId = company.evidence[0]?.providerId || "recherche-entreprises";
-  for (const event of events) {
+  const eventRows = buildEventRows(events, defaultProviderId);
+  if (eventRows.length) {
     await sql`
+      WITH input AS (
+        SELECT *
+        FROM jsonb_to_recordset(${JSON.stringify(eventRows)}::jsonb) AS x(
+          "providerId" text,
+          "eventType" text,
+          title text,
+          description text,
+          "eventDate" text,
+          confidence numeric,
+          "evidenceKeys" text[],
+          fingerprint text
+        )
+      )
       INSERT INTO company_events (
         company_id, provider_id, event_type, title, description, event_date,
         confidence, evidence_keys, fingerprint
-      ) VALUES (
-        ${companyId}, ${defaultProviderId}, ${event.type}, ${event.title}, ${event.description},
-        ${event.observedAt}, ${event.confidence}, ${event.evidenceKeys}, ${eventFingerprint(event)}
       )
+      SELECT
+        ${companyId}, "providerId", "eventType", title, description,
+        "eventDate"::timestamptz, confidence, COALESCE("evidenceKeys", '{}'::text[]), fingerprint
+      FROM input
       ON CONFLICT (company_id, fingerprint) DO NOTHING
     `;
   }
 
-  for (const signal of signals) {
+  const signalRows = buildSignalRows(signals);
+  if (signalRows.length) {
     await sql`
+      WITH input AS (
+        SELECT *
+        FROM jsonb_to_recordset(${JSON.stringify(signalRows)}::jsonb) AS x(
+          "signalType" text,
+          label text,
+          strength integer,
+          reason text,
+          "evidenceEventTypes" text[]
+        )
+      )
       INSERT INTO company_signals (
         company_id, signal_type, label, strength, reason, evidence_event_types, generated_at
-      ) VALUES (
-        ${companyId}, ${signal.type}, ${signal.label}, ${signal.strength}, ${signal.reason},
-        ${signal.evidenceEventTypes}, now()
       )
+      SELECT
+        ${companyId}, "signalType", label, strength, reason,
+        COALESCE("evidenceEventTypes", '{}'::text[]), now()
+      FROM input
     `;
   }
 
