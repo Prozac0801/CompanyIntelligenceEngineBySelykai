@@ -9,7 +9,7 @@ import type {
 
 const API_BASE = "https://recherche-entreprises.api.gouv.fr";
 const USER_AGENT =
-  "CompanyIntelligenceEngineBySelykai/0.4 (+https://github.com/Prozac0801/CompanyIntelligenceEngineBySelykai)";
+  "CompanyIntelligenceEngineBySelykai/0.5.10 (+https://github.com/Prozac0801/CompanyIntelligenceEngineBySelykai)";
 
 interface RawHeadOffice {
   siret?: string;
