@@ -12,7 +12,7 @@ export default function HomePage() {
             <h1>Comprendre une entreprise<br />avant de la contacter.</h1>
             <p className="lead">Une recherche unique, des sources traçables, puis des signaux expliqués. Le moteur sépare strictement les faits collectés des déductions.</p>
           </div>
-          <div className="build-tag"><span /> build foundation</div>
+          <div className="build-tag"><span /> v0.5.10 hardening</div>
         </header>
         <SearchCommand />
         <SourceRail />
