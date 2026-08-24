@@ -3,6 +3,7 @@
   "git": {
     "deploymentEnabled": {
       "feature/*": false,
+      "feat/*": false,
       "fix/*": false,
       "chore/*": false
     }
