@@ -7,6 +7,7 @@ export {
   isInpiRneConfigured,
   normalizeInpiEstablishments,
 } from "./inpi-rne";
+export { getCachedInpiRneSupplement } from "./inpi-cache";
 export {
   geocodeCompanyAddress,
   getCompanyNews,
