@@ -24,7 +24,7 @@ import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 import type { CompanyEstablishment, CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
 
-export const ENGINE_VERSION = "0.5.9";
+export const ENGINE_VERSION = "0.5.10";
 
 interface RneSupplement {
   facts: CompanyFact[];
