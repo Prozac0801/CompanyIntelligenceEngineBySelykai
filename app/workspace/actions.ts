@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
-import { analyzeCompany } from "@/lib/intelligence/company-engine";
+import { bootstrapCompany } from "@/lib/intelligence/bootstrap-company";
 import {
   archiveAlert,
   markAlertRead,
@@ -49,9 +49,8 @@ export async function addCompanyToWatchlistAction(formData: FormData) {
 
   if (!/^\d{9}$/.test(siren)) throw new Error("SIREN invalide.");
 
-  // Analyze first so the canonical company exists in the shared intelligence layer.
-  const analysis = await analyzeCompany(siren, { persist: true });
-  if (!analysis) throw new Error("Entreprise introuvable.");
+  const company = await bootstrapCompany(siren);
+  if (!company) throw new Error("Entreprise introuvable.");
 
   const added = await addCompanyToWatchlist({ userId, watchlistId, siren, frequency });
   if (!added) throw new Error("Impossible d’ajouter cette entreprise à la watchlist.");
