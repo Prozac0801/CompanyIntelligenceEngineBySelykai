@@ -2,8 +2,8 @@ import { hasDatabase } from "@/lib/db";
 import {
   commercialReuseDecision,
   getBodaccEvents,
+  getCachedInpiRneSupplement,
   getCompanyBySiren,
-  getInpiRneSupplement,
   isInpiRneConfigured,
 } from "@/lib/providers";
 import { computeOpportunityScore } from "@/lib/scoring/opportunity";
@@ -40,7 +40,7 @@ async function supplementalRne(siren: string): Promise<RneSupplement> {
   if (!isInpiRneConfigured()) return { facts: [], establishments: [] };
 
   try {
-    const supplement = await getInpiRneSupplement(siren);
+    const supplement = await getCachedInpiRneSupplement(siren);
     return { facts: supplement.facts, establishments: supplement.establishments };
   } catch (error) {
     console.warn(
