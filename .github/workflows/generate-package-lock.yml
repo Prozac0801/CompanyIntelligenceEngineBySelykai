@@ -3,6 +3,8 @@ name: Generate package lock
 on:
   push:
     branches: ["chore/runtime-hardening-v0.5.9"]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
