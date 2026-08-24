@@ -1,7 +1,10 @@
 import { hasDatabase } from "@/lib/db";
 import { factsFromCompany } from "@/lib/intelligence/facts";
 import { mergeWebIntelligence } from "@/lib/intelligence/enrichment";
-import { loadPersistedContactContext } from "@/lib/persistence/company-context-repository";
+import {
+  loadPersistedContactContext,
+  type PersistedContactContext,
+} from "@/lib/persistence/company-context-repository";
 import {
   commercialReuseDecision,
   getCachedInpiRneSupplement,
@@ -31,6 +34,13 @@ function isFresh(iso: string | undefined, maxAgeMs: number, now = Date.now()): b
   return Number.isFinite(value) && now - value >= 0 && now - value <= maxAgeMs;
 }
 
+export function contactDomainIsFresh(
+  context: Pick<PersistedContactContext, "domain" | "domainObservedAt">,
+  now = Date.now(),
+): boolean {
+  return Boolean(context.domain && isFresh(context.domainObservedAt, DOMAIN_FRESH_MS, now));
+}
+
 async function persistedEligibility(siren: string): Promise<ContactEligibility | null> {
   if (!hasDatabase()) return null;
   const context = await loadPersistedContactContext(siren);
@@ -40,7 +50,7 @@ async function persistedEligibility(siren: string): Promise<ContactEligibility |
 
   const policy = commercialReuseDecision(context.facts);
   if (policy.status !== "allowed") return { policy, source: "persisted" };
-  if (context.domain && isFresh(context.companyUpdatedAt, DOMAIN_FRESH_MS)) {
+  if (contactDomainIsFresh(context)) {
     return { policy, domain: context.domain, source: "persisted" };
   }
   return null;
