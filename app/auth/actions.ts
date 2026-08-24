@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { auth, isAuthConfigured } from "@/lib/auth/server";
+import { sanitizeReturnTo } from "@/lib/auth/return-to";
 
 export interface AuthActionState {
   error?: string;
@@ -25,7 +26,7 @@ export async function signInWithEmail(
 
   const { error } = await auth.signIn.email({ email, password });
   if (error) return { error: error.message || "Connexion impossible." };
-  redirect("/workspace");
+  redirect(sanitizeReturnTo(formData.get("returnTo")));
 }
 
 export async function signUpWithEmail(
@@ -43,7 +44,7 @@ export async function signUpWithEmail(
 
   const { error } = await auth.signUp.email({ name, email, password });
   if (error) return { error: error.message || "Création du compte impossible." };
-  redirect("/workspace");
+  redirect(sanitizeReturnTo(formData.get("returnTo")));
 }
 
 export async function signOut(): Promise<never> {
