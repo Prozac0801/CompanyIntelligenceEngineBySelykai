@@ -23,6 +23,8 @@ export interface ContactEligibility {
 const POLICY_FRESH_MS = 24 * 60 * 60 * 1000;
 const DOMAIN_FRESH_MS = 30 * 24 * 60 * 60 * 1000;
 
+type WebsiteVerificationResult = Awaited<ReturnType<typeof verifyCompanyWebsite>>;
+
 function isFresh(iso: string | undefined, maxAgeMs: number, now = Date.now()): boolean {
   if (!iso) return false;
   const value = Date.parse(iso);
@@ -60,15 +62,16 @@ async function liveEligibility(siren: string): Promise<ContactEligibility | null
   if (policy.status !== "allowed") return { policy, source: "live" };
 
   const hunterDomain = await resolveHunterDomain(company.name);
+  const emptyVerification = {} as WebsiteVerificationResult;
   const [initialHunter, serp, initialFirstParty] = await Promise.all([
     hunterDomain ? getHunterCompanyIntelligence(hunterDomain) : Promise.resolve(null),
     getSerpWebIntelligence(company.name, hunterDomain),
-    hunterDomain ? verifyCompanyWebsite(company.name, hunterDomain) : Promise.resolve({}),
+    hunterDomain ? verifyCompanyWebsite(company.name, hunterDomain) : Promise.resolve(emptyVerification),
   ]);
 
   const fallbackDomain = hunterDomain || serp.web?.domain;
   const hunter = initialHunter || (fallbackDomain ? await getHunterCompanyIntelligence(fallbackDomain) : null);
-  const firstParty = ("web" in initialFirstParty || "evidence" in initialFirstParty || !fallbackDomain)
+  const firstParty: WebsiteVerificationResult = initialFirstParty.web || initialFirstParty.evidence || !fallbackDomain
     ? initialFirstParty
     : await verifyCompanyWebsite(company.name, fallbackDomain);
   const web = mergeWebIntelligence(hunter?.web, serp.web, firstParty.web);
