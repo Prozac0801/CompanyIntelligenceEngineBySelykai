@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { contactDomainIsFresh } from "@/lib/intelligence/contact-eligibility";
 import { executionPolicy } from "@/lib/intelligence/execution-policy";
 
 describe("v0.5.10 execution intents", () => {
@@ -12,6 +13,19 @@ describe("v0.5.10 execution intents", () => {
     expect(executionPolicy("bootstrap").providerFamilies).toEqual(["official-identity"]);
     expect(executionPolicy("monitoring").detectEvents).toBe(true);
     expect(executionPolicy("contact").detectEvents).toBe(false);
+  });
+
+  it("uses the real domain observation timestamp, not company updated_at", () => {
+    const now = Date.parse("2026-08-24T10:00:00.000Z");
+    expect(contactDomainIsFresh({
+      domain: "selykai.com",
+      domainObservedAt: "2026-08-20T10:00:00.000Z",
+    }, now)).toBe(true);
+    expect(contactDomainIsFresh({
+      domain: "selykai.com",
+      domainObservedAt: "2026-06-01T10:00:00.000Z",
+    }, now)).toBe(false);
+    expect(contactDomainIsFresh({ domain: "selykai.com" }, now)).toBe(false);
   });
 
   it("does not run exhaustive analysis merely to reveal contacts", () => {
