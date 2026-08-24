@@ -5,6 +5,13 @@ import type {
   SourceEvidence,
 } from "@/types/company";
 import { readProviderCache, writeProviderCache } from "./cache";
+import {
+  capabilityAllowsRequest,
+  openCapabilityCircuit,
+  readCapabilityState,
+  recordCapabilityHttpResult,
+  type ProviderCapability,
+} from "./capability-state";
 import { providerStatusFromHttp, recordProviderRun } from "./observability";
 
 const APILAYER_DOCS = "https://apilayer.com/products";
@@ -48,16 +55,30 @@ async function apilayerGet<T>(
   baseUrl: string,
   params: Record<string, string>,
   operation: string,
+  capability: ProviderCapability,
   preferredAuth: ApiLayerAuthMode = "apikey_header",
 ): Promise<T | null> {
   const key = process.env.APILAYER_API_KEY?.trim();
   if (!key) return null;
+
+  const capabilityState = await readCapabilityState(capability);
+  if (!capabilityAllowsRequest(capabilityState)) return null;
+
   const fallbackAuth: ApiLayerAuthMode = preferredAuth === "apikey_header" ? "access_key_query" : "apikey_header";
   let response = await apilayerRequest(baseUrl, params, operation, key, preferredAuth);
   if (response && (response.status === 401 || response.status === 403)) {
     response = await apilayerRequest(baseUrl, params, operation, key, fallbackAuth);
   }
-  if (!response?.ok) return null;
+
+  if (!response) {
+    await openCapabilityCircuit(capability, "degraded");
+    return null;
+  }
+  if (!response.ok) {
+    await recordCapabilityHttpResult(capability, response.status);
+    return null;
+  }
+
   try {
     return (await response.json()) as T;
   } catch {
@@ -179,7 +200,8 @@ export async function getSerpWebIntelligence(
       "https://api.serpstack.com/search",
       { query: `\"${companyName}\"`, type: "web", gl: "fr", num: "10" },
       "serp_company_presence",
-      "access_key_query",
+      "apilayer-serp",
+      "apikey_header",
     );
     normalized = normalizeSerpstackResponse(raw);
     if (normalized) await writeProviderCache("apilayer", cacheKey, normalized, 60 * 60 * 24 * 7);
@@ -236,6 +258,8 @@ export async function getCompanyNews(companyName: string): Promise<{ news: Compa
     "https://api.mediastack.com/v1/news",
     { keywords: companyName, languages: "fr,en", sort: "published_desc", limit: "10" },
     "company_news",
+    "apilayer-news",
+    "apikey_header",
   );
   if (!validMediaStackResponse(response)) return { news: [] };
   if (!validMediaStackResponse(cached)) await writeProviderCache("apilayer", cacheKey, response, 60 * 60 * 6);
@@ -255,6 +279,8 @@ export async function geocodeCompanyAddress(address?: string): Promise<{ geo?: C
     "https://api.positionstack.com/v1/forward",
     { query: address, country: "FR", limit: "1" },
     "forward_geocoding",
+    "apilayer-geo",
+    "access_key_query",
   );
   if (!response) return {};
   if (!cached) await writeProviderCache("apilayer", cacheKey, response, 60 * 60 * 24 * 30);
