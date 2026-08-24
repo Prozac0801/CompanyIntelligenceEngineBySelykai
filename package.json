@@ -1,6 +1,6 @@
 {
   "name": "company-intelligence-engine-by-selykai",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "private": true,
   "engines": {
     "node": "24.x"
