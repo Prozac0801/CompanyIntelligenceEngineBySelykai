@@ -284,6 +284,21 @@ export async function markMonitoringTargetChecked(target: MonitoringTarget): Pro
   `;
 }
 
+export async function markMonitoringTargetFailed(
+  target: MonitoringTarget,
+  retryDelayMinutes: number,
+): Promise<void> {
+  const sql = requireWritableDatabase();
+  const safeDelay = Math.max(5, Math.min(Math.round(retryDelayMinutes), 30 * 24 * 60));
+  await sql`
+    UPDATE watchlist_companies
+    SET
+      last_checked_at = now(),
+      next_check_at = now() + (${safeDelay} * interval '1 minute')
+    WHERE watchlist_id = ${target.watchlistId} AND company_id = ${target.companyId}
+  `;
+}
+
 export async function createIntelligenceAlert(input: {
   workspaceId: string;
   watchlistId: string;
