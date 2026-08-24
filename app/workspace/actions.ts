@@ -13,6 +13,7 @@ import {
   addCompanyToWatchlist,
   createWatchlist,
 } from "@/lib/persistence/watchlist-repository";
+import { workspaceFeedbackPath } from "@/lib/workspaces/action-feedback";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -42,18 +43,28 @@ export async function createWatchlistAction(formData: FormData) {
 
 export async function addCompanyToWatchlistAction(formData: FormData) {
   const userId = await requireUserId();
-  const watchlistId = requireUuid(formData.get("watchlistId"), "Watchlist");
+  const rawWatchlistId = String(formData.get("watchlistId") || "");
+  if (!UUID_PATTERN.test(rawWatchlistId)) {
+    redirect(workspaceFeedbackPath({ error: "invalid_watchlist" }));
+  }
+  const watchlistId = rawWatchlistId;
   const siren = String(formData.get("siren") || "").replace(/\D/g, "");
   const frequencyValue = String(formData.get("frequency") || "daily");
   const frequency = frequencyValue === "weekly" || frequencyValue === "manual" ? frequencyValue : "daily";
 
-  if (!/^\d{9}$/.test(siren)) throw new Error("SIREN invalide.");
+  if (!/^\d{9}$/.test(siren)) {
+    redirect(workspaceFeedbackPath({ error: "invalid_siren", watchlistId }));
+  }
 
   const company = await bootstrapCompany(siren);
-  if (!company) throw new Error("Entreprise introuvable.");
+  if (!company) {
+    redirect(workspaceFeedbackPath({ error: "company_not_found", watchlistId }));
+  }
 
   const added = await addCompanyToWatchlist({ userId, watchlistId, siren, frequency });
-  if (!added) throw new Error("Impossible d’ajouter cette entreprise à la watchlist.");
+  if (!added) {
+    redirect(workspaceFeedbackPath({ error: "watchlist_add_failed", watchlistId }));
+  }
   revalidatePath("/workspace");
   revalidatePath(`/company/${siren}`);
 }
