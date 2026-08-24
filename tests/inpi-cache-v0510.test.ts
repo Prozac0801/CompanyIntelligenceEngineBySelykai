@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   INPI_COMPANY_CACHE_TTL_SECONDS,
   inpiCompanyCacheKey,
-} from "@/lib/providers/inpi-rne";
+} from "@/lib/providers/inpi-cache";
 
 describe("INPI shared cache v0.5.10", () => {
   it("uses a versioned company cache shared across serverless instances", () => {
