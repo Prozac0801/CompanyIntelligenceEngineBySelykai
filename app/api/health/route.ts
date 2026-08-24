@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import { checkDatabase } from "@/lib/db";
 import { authConfigurationHealth } from "@/lib/auth/server";
 import { ENGINE_VERSION } from "@/lib/intelligence/company-engine";
+import { getProviderCapabilityDiagnostics } from "@/lib/providers/capability-state";
 import { getProviderCatalog } from "@/lib/providers/catalog";
 
 export async function GET() {
-  const database = await checkDatabase();
+  const [database, providerCapabilities] = await Promise.all([
+    checkDatabase(),
+    getProviderCapabilityDiagnostics(),
+  ]);
   const auth = authConfigurationHealth();
   const providers = getProviderCatalog();
   const healthy = !database.configured || (database.reachable && database.schemaReady);
@@ -26,6 +30,12 @@ export async function GET() {
       },
       configuredSources,
       providerPipeline: providers.map(({ id, status }) => ({ id, status })),
+      providerCapabilities: providerCapabilities.map(({ capability, status, checkedAt, retryAfter }) => ({
+        capability,
+        status,
+        checkedAt,
+        retryAfter,
+      })),
       timestamp: new Date().toISOString(),
     },
     {
