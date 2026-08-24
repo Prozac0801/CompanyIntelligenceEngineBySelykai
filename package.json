@@ -1,9 +1,9 @@
 {
   "name": "company-intelligence-engine-by-selykai",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "private": true,
   "engines": {
-    "node": ">=22.0.0"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",
