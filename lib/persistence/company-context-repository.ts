@@ -5,7 +5,7 @@ import type { CompanyFact, FactValue } from "@/types/intelligence";
 
 export interface PersistedContactContext {
   domain?: string;
-  companyUpdatedAt: string;
+  domainObservedAt?: string;
   facts: CompanyFact[];
 }
 
@@ -75,7 +75,7 @@ export async function loadPersistedContactContext(siren: string): Promise<Persis
   const rows = (await sql`
     SELECT
       c.canonical_domain,
-      c.updated_at AS company_updated_at,
+      cd.last_observed_at AS domain_observed_at,
       cf.fact_type,
       cf.fact_key,
       cf.value,
@@ -88,6 +88,14 @@ export async function loadPersistedContactContext(siren: string): Promise<Persis
       p.kind AS provider_kind
     FROM companies c
     LEFT JOIN LATERAL (
+      SELECT last_observed_at
+      FROM company_domains
+      WHERE company_id = c.id
+        AND domain = c.canonical_domain
+      ORDER BY is_primary DESC, last_observed_at DESC
+      LIMIT 1
+    ) cd ON true
+    LEFT JOIN LATERAL (
       SELECT fact_type, fact_key, value, confidence, source_url, last_observed_at, fingerprint, provider_id
       FROM company_facts
       WHERE company_id = c.id AND fact_key = 'commercial_prospecting_allowed'
@@ -99,7 +107,7 @@ export async function loadPersistedContactContext(siren: string): Promise<Persis
     LIMIT 1
   `) as unknown as Array<{
     canonical_domain: string | null;
-    company_updated_at: string | Date;
+    domain_observed_at: string | Date | null;
     fact_type: CompanyFact["type"] | null;
     fact_key: string | null;
     value: FactValue | null;
@@ -137,7 +145,7 @@ export async function loadPersistedContactContext(siren: string): Promise<Persis
 
   return {
     domain: row.canonical_domain || undefined,
-    companyUpdatedAt: new Date(row.company_updated_at).toISOString(),
+    domainObservedAt: row.domain_observed_at ? new Date(row.domain_observed_at).toISOString() : undefined,
     facts,
   };
 }
