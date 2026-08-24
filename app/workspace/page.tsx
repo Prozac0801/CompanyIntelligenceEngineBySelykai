@@ -17,6 +17,7 @@ import {
   countUnreadWorkspaceAlerts,
   listWorkspaceInboxAlerts,
 } from "@/lib/persistence/alert-repository";
+import { getWatchlistCompanyCounts } from "@/lib/persistence/watchlist-overview-repository";
 import { listWatchlistCompanies } from "@/lib/persistence/watchlist-repository";
 import { ensurePersonalWorkspace } from "@/lib/workspaces/bootstrap";
 import type { AlertSeverity } from "@/types/workspace";
@@ -29,6 +30,7 @@ import {
 } from "./actions";
 import { signOut } from "@/app/auth/actions";
 import styles from "./workspace-v056.module.css";
+import navStyles from "./workspace-v057.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +52,15 @@ function severityBadgeClass(value: AlertSeverity) {
   return styles.severityInfo;
 }
 
-export default async function WorkspacePage() {
+function selectedWatchlistId(value?: string | string[]): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function WorkspacePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ watchlist?: string | string[] }>;
+}) {
   const { data: session } = await auth.getSession();
   if (!session?.user) redirect("/auth/sign-in");
 
@@ -58,9 +68,12 @@ export default async function WorkspacePage() {
     userId: session.user.id,
     userName: session.user.name,
   });
-  const activeWatchlist = watchlists[0];
+  const query = await searchParams;
+  const requestedWatchlistId = selectedWatchlistId(query.watchlist);
+  const activeWatchlist =
+    watchlists.find((watchlist) => watchlist.id === requestedWatchlistId) || watchlists[0];
 
-  const [companies, alerts, unreadCount] = await Promise.all([
+  const [companies, alerts, unreadCount, watchlistCounts] = await Promise.all([
     activeWatchlist
       ? listWatchlistCompanies(session.user.id, activeWatchlist.id)
       : Promise.resolve([]),
@@ -70,6 +83,10 @@ export default async function WorkspacePage() {
       limit: 20,
     }),
     countUnreadWorkspaceAlerts({
+      userId: session.user.id,
+      workspaceId: workspace.id,
+    }),
+    getWatchlistCompanyCounts({
       userId: session.user.id,
       workspaceId: workspace.id,
     }),
@@ -87,8 +104,37 @@ export default async function WorkspacePage() {
           <form action={signOut}><button className="ghost-button" type="submit"><LogOut size={15} /> Déconnexion</button></form>
         </header>
 
+        {watchlists.length ? (
+          <section className={navStyles.watchlistNavigator} aria-label="Navigation entre les watchlists">
+            <div className={navStyles.watchlistNavigatorHeader}>
+              <strong>Listes de veille</strong>
+              <span>{watchlists.length} liste{watchlists.length > 1 ? "s" : ""}</span>
+            </div>
+            <nav className={navStyles.watchlistTabs}>
+              {watchlists.map((watchlist) => {
+                const active = watchlist.id === activeWatchlist?.id;
+                const count = watchlistCounts.get(watchlist.id) || 0;
+                return (
+                  <Link
+                    key={watchlist.id}
+                    href={`/workspace?watchlist=${watchlist.id}`}
+                    className={`${navStyles.watchlistTab} ${active ? navStyles.watchlistTabActive : ""}`}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <span className={navStyles.watchlistTabCopy}>
+                      <strong>{watchlist.name}</strong>
+                      <small>{watchlist.description || "Liste personnalisée"}</small>
+                    </span>
+                    <span className={navStyles.watchlistCount}>{count}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+          </section>
+        ) : null}
+
         <section className="workspace-metrics">
-          <div><Radar size={18} /><span>Entreprises suivies</span><strong>{companies.length}</strong></div>
+          <div><Radar size={18} /><span>Dans la liste active</span><strong>{companies.length}</strong></div>
           <div><Bell size={18} /><span>Alertes non lues</span><strong>{unreadCount}</strong></div>
           <div><ShieldCheck size={18} /><span>Isolation</span><strong>Workspace</strong></div>
         </section>
@@ -99,6 +145,9 @@ export default async function WorkspacePage() {
               <h2><Building2 size={16} /> {activeWatchlist?.name || "Watchlist"}</h2>
               <span>{companies.length} société{companies.length > 1 ? "s" : ""}</span>
             </div>
+            {activeWatchlist ? (
+              <p className={navStyles.activeListContext}>Liste active : <b>{activeWatchlist.name}</b> · les nouveaux SIREN seront ajoutés ici.</p>
+            ) : null}
             {activeWatchlist && (
               <form action={addCompanyToWatchlistAction} className="inline-add-form">
                 <input type="hidden" name="watchlistId" value={activeWatchlist.id} />
@@ -117,7 +166,7 @@ export default async function WorkspacePage() {
                   <div><strong>{company.name}</strong><span className="mono">SIREN {company.siren}</span></div>
                   <div><span>{frequencyLabel(company.monitorFrequency)}</span><small>{company.nextCheckAt ? `prochain contrôle ${new Date(company.nextCheckAt).toLocaleString("fr-FR")}` : "pas de contrôle automatique"}</small></div>
                 </Link>
-              )) : <p className="empty-copy">Aucune entreprise suivie. Ajoutez un SIREN pour lancer la première observation.</p>}
+              )) : <p className="empty-copy">Cette liste est vide. Ajoutez un SIREN pour lancer sa première observation.</p>}
             </div>
           </section>
 
@@ -174,13 +223,11 @@ export default async function WorkspacePage() {
         </div>
 
         <section className="detail-panel workspace-list-manager">
-          <div className="panel-title-row"><h2>Vos listes</h2><span>{watchlists.length}</span></div>
-          <div className="workspace-list-strip">
-            {watchlists.map((watchlist) => <div key={watchlist.id}><strong>{watchlist.name}</strong><small>{watchlist.description || "Liste personnalisée"}</small></div>)}
-          </div>
+          <div className="panel-title-row"><h2>Créer une liste</h2><span>{watchlists.length} existante{watchlists.length > 1 ? "s" : ""}</span></div>
+          <p className="analysis-method-copy">Créez des listes séparées par marché, priorité ou territoire. La nouvelle liste devient active immédiatement après sa création.</p>
           <form action={createWatchlistAction} className="inline-add-form compact">
             <input type="hidden" name="workspaceId" value={workspace.id} />
-            <input name="name" placeholder="Nouvelle liste" required />
+            <input name="name" maxLength={80} placeholder="Nouvelle liste" required />
             <button type="submit"><Plus size={15} /> Créer</button>
           </form>
         </section>
