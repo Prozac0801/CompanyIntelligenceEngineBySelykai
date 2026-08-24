@@ -1,12 +1,20 @@
-"use client";
-
 import Link from "next/link";
-import { useActionState } from "react";
-import { ArrowRight, ShieldCheck } from "lucide-react";
-import { signUpWithEmail } from "@/app/auth/actions";
+import { ShieldCheck } from "lucide-react";
+import { sanitizeReturnTo } from "@/lib/auth/return-to";
+import { SignUpForm } from "./sign-up-form";
 
-export default function SignUpPage() {
-  const [state, action, pending] = useActionState(signUpWithEmail, null);
+function firstValue(value?: string | string[]): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function SignUpPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string | string[] }>;
+}) {
+  const query = await searchParams;
+  const returnTo = sanitizeReturnTo(firstValue(query.returnTo));
+  const signInHref = `/auth/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
 
   return (
     <main className="auth-page">
@@ -15,17 +23,11 @@ export default function SignUpPage() {
         <div className="auth-copy">
           <p className="mono">COMPANY INTELLIGENCE ENGINE</p>
           <h1>Créer votre espace de veille.</h1>
-          <p>Un espace personnel et une première watchlist seront créés automatiquement après inscription.</p>
+          <p>Un espace personnel et une première watchlist seront créés automatiquement lors de votre première ouverture de la veille.</p>
         </div>
-        <form action={action} className="auth-form">
-          <label>Nom<input name="name" type="text" autoComplete="name" required /></label>
-          <label>Email<input name="email" type="email" autoComplete="email" required /></label>
-          <label>Mot de passe<input name="password" type="password" autoComplete="new-password" minLength={8} required /></label>
-          {state?.error && <div className="auth-error">{state.error}</div>}
-          <button type="submit" disabled={pending}>{pending ? "Création…" : "Créer mon espace"}<ArrowRight size={16} /></button>
-        </form>
+        <SignUpForm returnTo={returnTo} />
         <div className="auth-footer"><ShieldCheck size={14} /> Authentification gérée par Neon</div>
-        <p className="auth-switch">Déjà inscrit ? <Link href="/auth/sign-in">Se connecter</Link></p>
+        <p className="auth-switch">Déjà inscrit ? <Link href={signInHref}>Se connecter</Link></p>
       </section>
     </main>
   );
