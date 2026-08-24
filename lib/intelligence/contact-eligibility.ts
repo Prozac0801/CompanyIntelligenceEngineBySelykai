@@ -4,9 +4,9 @@ import { mergeWebIntelligence } from "@/lib/intelligence/enrichment";
 import { loadPersistedContactContext } from "@/lib/persistence/company-context-repository";
 import {
   commercialReuseDecision,
+  getCachedInpiRneSupplement,
   getCompanyBySiren,
   getHunterCompanyIntelligence,
-  getInpiRneSupplement,
   getSerpWebIntelligence,
   isInpiRneConfigured,
   resolveHunterDomain,
@@ -50,10 +50,10 @@ async function liveEligibility(siren: string): Promise<ContactEligibility | null
   const company = await getCompanyBySiren(siren);
   if (!company) return null;
 
-  let rneFacts = [] as Awaited<ReturnType<typeof getInpiRneSupplement>>["facts"];
+  let rneFacts = [] as Awaited<ReturnType<typeof getCachedInpiRneSupplement>>["facts"];
   if (isInpiRneConfigured()) {
     try {
-      rneFacts = (await getInpiRneSupplement(siren)).facts;
+      rneFacts = (await getCachedInpiRneSupplement(siren)).facts;
     } catch {
       rneFacts = [];
     }
