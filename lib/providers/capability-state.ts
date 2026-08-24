@@ -1,7 +1,7 @@
 import { readProviderCache, writeProviderCache } from "./cache";
 
 export type ProviderCapability = "apilayer-serp" | "apilayer-news" | "apilayer-geo";
-export type ProviderCapabilityStatus = "healthy" | "degraded" | "auth_error" | "rate_limited";
+export type ProviderCapabilityStatus = "unknown" | "healthy" | "degraded" | "auth_error" | "rate_limited";
 
 export interface ProviderCapabilityState {
   capability: ProviderCapability;
@@ -51,13 +51,13 @@ export function capabilityAllowsRequest(
   state: ProviderCapabilityState | null | undefined,
   now = Date.now(),
 ): boolean {
-  if (!state || state.status === "healthy" || !state.retryAfter) return true;
+  if (!state || state.status === "unknown" || state.status === "healthy" || !state.retryAfter) return true;
   const retryAt = Date.parse(state.retryAfter);
   return !Number.isFinite(retryAt) || retryAt <= now;
 }
 
 function stateTtlSeconds(state: ProviderCapabilityState, now = Date.now()): number {
-  if (state.status === "healthy") return Math.round(HEALTHY_CACHE_MS / 1000);
+  if (state.status === "healthy" || state.status === "unknown") return Math.round(HEALTHY_CACHE_MS / 1000);
   const retryAt = state.retryAfter ? Date.parse(state.retryAfter) : now + DEGRADED_BACKOFF_MS;
   return Math.max(60, Math.ceil((retryAt - now) / 1000));
 }
@@ -88,7 +88,7 @@ export async function recordCapabilityHttpResult(
 
 export async function openCapabilityCircuit(
   capability: ProviderCapability,
-  status: Exclude<ProviderCapabilityStatus, "healthy"> = "degraded",
+  status: "degraded" | "auth_error" | "rate_limited" = "degraded",
   now = Date.now(),
 ): Promise<ProviderCapabilityState> {
   const backoffMs = status === "auth_error"
@@ -108,13 +108,12 @@ export async function openCapabilityCircuit(
 
 export async function getProviderCapabilityDiagnostics(): Promise<ProviderCapabilityState[]> {
   const capabilities: ProviderCapability[] = ["apilayer-serp", "apilayer-news", "apilayer-geo"];
-  const states = await Promise.all(capabilities.map(async (capability) => {
+  return Promise.all(capabilities.map(async (capability) => {
     const state = await readCapabilityState(capability);
     return state || {
       capability,
-      status: "healthy" as const,
+      status: "unknown" as const,
       checkedAt: new Date(0).toISOString(),
     };
   }));
-  return states;
 }
