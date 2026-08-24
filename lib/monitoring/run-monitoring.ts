@@ -102,7 +102,7 @@ export async function runMonitoringBatch(limit = 20): Promise<MonitoringBatchRes
   // Sequential by design: protects provider rate limits and keeps scheduled runs predictable.
   for (const [siren, companyTargets] of grouped) {
     try {
-      const analysis = await analyzeCompany(siren, { persist: true });
+      const analysis = await analyzeCompany(siren, { persist: true, intent: "monitoring" });
       if (!analysis) throw new Error("Entreprise introuvable pendant la surveillance.");
       result.analyzed += 1;
 
