@@ -96,15 +96,15 @@ export async function loadPersistedContactContext(siren: string): Promise<Persis
       LIMIT 1
     ) cd ON true
     LEFT JOIN LATERAL (
-      SELECT fact_type, fact_key, value, confidence, source_url, last_observed_at, fingerprint, provider_id
+      SELECT DISTINCT ON (fact_key)
+        fact_type, fact_key, value, confidence, source_url, last_observed_at, fingerprint, provider_id
       FROM company_facts
-      WHERE company_id = c.id AND fact_key = 'commercial_prospecting_allowed'
-      ORDER BY last_observed_at DESC
-      LIMIT 1
+      WHERE company_id = c.id
+        AND fact_key IN ('commercial_prospecting_allowed', 'web_verified_domain')
+      ORDER BY fact_key, last_observed_at DESC
     ) cf ON true
     LEFT JOIN providers p ON p.id = cf.provider_id
     WHERE c.siren = ${siren}
-    LIMIT 1
   `) as unknown as Array<{
     canonical_domain: string | null;
     domain_observed_at: string | Date | null;
@@ -123,24 +123,27 @@ export async function loadPersistedContactContext(siren: string): Promise<Persis
   const row = rows[0];
   if (!row) return null;
   const facts: CompanyFact[] = [];
-  if (
-    row.fact_type && row.fact_key && row.fingerprint && row.provider_id && row.provider_name
-    && row.provider_kind && row.last_observed_at && row.confidence !== null
-  ) {
-    facts.push({
-      type: row.fact_type,
-      key: row.fact_key,
-      value: row.value,
-      fingerprint: row.fingerprint,
-      evidence: {
-        providerId: row.provider_id,
-        provider: row.provider_name,
-        kind: row.provider_kind,
-        observedAt: new Date(row.last_observed_at).toISOString(),
-        sourceUrl: row.source_url || undefined,
-        confidence: Number(row.confidence),
-      },
-    });
+  for (const factRow of rows) {
+    if (
+      factRow.fact_type && factRow.fact_key && factRow.fingerprint
+      && factRow.provider_id && factRow.provider_name && factRow.provider_kind
+      && factRow.last_observed_at && factRow.confidence !== null
+    ) {
+      facts.push({
+        type: factRow.fact_type,
+        key: factRow.fact_key,
+        value: factRow.value,
+        fingerprint: factRow.fingerprint,
+        evidence: {
+          providerId: factRow.provider_id,
+          provider: factRow.provider_name,
+          kind: factRow.provider_kind,
+          observedAt: new Date(factRow.last_observed_at).toISOString(),
+          sourceUrl: factRow.source_url || undefined,
+          confidence: Number(factRow.confidence),
+        },
+      });
+    }
   }
 
   return {

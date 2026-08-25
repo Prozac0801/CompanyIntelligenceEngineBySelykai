@@ -22,6 +22,19 @@ export function isApiLayerProviderConfigured(): boolean {
   return Boolean(process.env.APILAYER_API_KEY?.trim());
 }
 
+function hasApiLayerErrorEnvelope(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const root = value as Record<string, unknown>;
+  if (root.error || root.success === false) return true;
+  const request = root.request;
+  return Boolean(
+    request
+      && typeof request === "object"
+      && !Array.isArray(request)
+      && (request as Record<string, unknown>).success === false,
+  );
+}
+
 function evidence(sourceUrl: string, confidence = 0.8): SourceEvidence {
   return { providerId: "apilayer", provider: "APILayer", kind: "web", observedAt: new Date().toISOString(), sourceUrl, confidence };
 }
@@ -80,8 +93,15 @@ async function apilayerGet<T>(
   }
 
   try {
-    return (await response.json()) as T;
+    const payload = (await response.json()) as T;
+    if (hasApiLayerErrorEnvelope(payload)) {
+      await openCapabilityCircuit(capability, "degraded");
+      return null;
+    }
+    await recordCapabilityHttpResult(capability, response.status);
+    return payload;
   } catch {
+    await openCapabilityCircuit(capability, "degraded");
     return null;
   }
 }

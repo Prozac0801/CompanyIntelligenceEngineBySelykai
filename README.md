@@ -6,7 +6,7 @@ Moteur d'intelligence entreprise multi-source conçu pour consolider des faits, 
 
 ## État du projet
 
-**Intelligence V0.5.10 — runtime hardening + Momentum + monitoring**
+**Intelligence V0.5.10 — runtime hardening + Momentum + monitoring + executive UI**
 
 - recherche live par nom, adresse, SIREN ou SIRET ;
 - API Recherche d'entreprises en source officielle primaire ;
@@ -35,6 +35,11 @@ Moteur d'intelligence entreprise multi-source conçu pour consolider des faits, 
 - Vercel Functions ciblées sur `fra1`, au plus près de Neon `eu-central-1` ;
 - previews Vercel en lecture seule par défaut afin de ne pas polluer Neon production ;
 - Neon PostgreSQL dédié + Managed Neon Auth ;
+- système visuel executive tech, sobre et premium, piloté par des tokens avec navigation mobile persistante et surfaces de données cohérentes ;
+- palette de recherche globale `Ctrl/⌘ + K`, détection automatique nom/SIREN/SIRET/adresse et navigation clavier des résultats ;
+- graphe de décision navigable fondé sur les sources, faits, événements, signaux et la couverture réellement calculés ;
+- préchargement des analyses entreprise désactivé dans les listes : aucun pipeline coûteux avant l’intention explicite de l’utilisateur ;
+- contrastes AA, focus clavier visible, cibles tactiles renforcées et réduction des animations respectée ;
 - déploiement Vercel sur `companyintengine`.
 
 ## Stack
@@ -45,7 +50,7 @@ Moteur d'intelligence entreprise multi-source conçu pour consolider des faits, 
 - Managed Neon Auth via `@neondatabase/auth`
 - Vitest + ESLint
 - Vercel
-- CSS natif / design system interne
+- CSS natif / design system UI/UX Pro Max adapté à l’identité Selykai
 
 ## Démarrage local
 
@@ -127,7 +132,7 @@ Le cockpit V0.6 devra lire l'intelligence déjà calculée et ne lancera pas de 
 
 ## Intelligence scoring
 
-La release moteur est **0.5.10**, mais le modèle de scoring reste volontairement **`intelligence-v0.5.0`** : le hardening ne change ni les poids ni la sémantique des décisions.
+La release moteur est **0.5.10**, mais le modèle de scoring reste volontairement **`intelligence-v0.5.5`** : le hardening ne change ni les poids ni la sémantique des décisions introduits avec les garde-fous RNE.
 
 Le moteur expose cinq axes distincts :
 
@@ -178,6 +183,7 @@ Migrations actuelles :
 database/migrations/0001_foundation_v0.2.sql
 database/migrations/0002_workspaces_watchlists.sql
 database/migrations/0003_bodacc_provider.sql
+database/migrations/0004_momentum_v0.5_providers.sql
 ```
 
 V0.5.10 n'ajoute aucune migration : le backoff monitoring réutilise `next_check_at` et les circuits providers réutilisent `api_cache`.
@@ -195,6 +201,7 @@ Le schéma cumulé reste disponible dans `database/schema.sql`.
 - `diffusionCommerciale=false` bloque l'enrichissement de prospection ;
 - l'absence de preuve d'autorisation RNE bloque également l'action commerciale ;
 - les contacts ne sont jamais recherchés massivement par défaut ;
+- un domaine persisté n'est réutilisé pour les contacts que s'il correspond exactement à une preuve de vérification encore fraîche ;
 - les réponses de contacts sont `private, no-store` ;
 - le worker de surveillance utilise un Bearer secret comparé en temps constant ;
 - les vérifications de sites first-party conservent les protections SSRF.
@@ -207,5 +214,6 @@ Le schéma cumulé reste disponible dans `database/schema.sql`.
 - [`docs/auth.md`](docs/auth.md)
 - [`docs/monitoring.md`](docs/monitoring.md)
 - [`docs/deployment.md`](docs/deployment.md)
+- [`docs/PUBLISHING.md`](docs/PUBLISHING.md)
 - [`docs/v0.5.10-runtime-hardening.md`](docs/v0.5.10-runtime-hardening.md)
 - [`database/README.md`](database/README.md)

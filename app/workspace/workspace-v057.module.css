@@ -1,5 +1,5 @@
 .watchlistNavigator {
-  margin-bottom: 18px;
+  margin: 26px 0 16px;
 }
 
 .watchlistNavigatorHeader {
@@ -11,49 +11,54 @@
 }
 
 .watchlistNavigatorHeader strong {
-  font-size: 11px;
+  color: #233147;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 
 .watchlistNavigatorHeader span {
-  color: #818b93;
+  color: #657489;
   font-size: 9px;
 }
 
 .watchlistTabs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 9px;
 }
 
 .watchlistTab {
-  display: flex;
   min-width: 0;
+  min-height: 72px;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 13px;
-  border: 1px solid #dfe4e8;
-  border-radius: 13px;
-  background: #fff;
-  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+  border: 1px solid rgba(116, 136, 160, .2);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+  transition: border-color 160ms ease, background 160ms ease;
 }
 
 .watchlistTab:hover {
-  transform: translateY(-1px);
-  border-color: #bdc7ce;
-  background: #fafcfd;
+  border-color: #c4d0df;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .watchlistTabActive {
-  border-color: #1b2227;
-  background: #111619;
-  color: #fff;
-  box-shadow: 0 10px 24px rgba(17, 22, 25, .1);
+  border-color: #26364e;
+  background: #152238;
+  color: #ffffff;
+  box-shadow: none;
 }
 
 .watchlistTabActive:hover {
-  border-color: #1b2227;
-  background: #111619;
+  border-color: #344867;
+  background: #192942;
 }
 
 .watchlistTabCopy {
@@ -66,55 +71,53 @@
 }
 
 .watchlistTabCopy strong {
-  overflow: hidden;
+  color: #243248;
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .watchlistTabCopy small {
-  margin-top: 4px;
-  overflow: hidden;
-  color: #8a949b;
-  font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-top: 5px;
+  color: #657489;
+  font-size: 9px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
-.watchlistTabActive .watchlistTabCopy small {
-  color: #8f9aa1;
-}
+.watchlistTabActive .watchlistTabCopy strong { color: #ffffff; }
+.watchlistTabActive .watchlistTabCopy small { color: #7f90a8; }
 
 .watchlistCount {
+  min-width: 30px;
   flex: 0 0 auto;
-  min-width: 28px;
-  padding: 5px 7px;
+  padding: 6px 8px;
   border-radius: 999px;
-  background: #f1f4f6;
-  color: #4e5961;
-  font: 700 9px/1 var(--font-mono), monospace;
+  background: #edf2f7;
+  color: #526276;
+  font: 750 9px/1 var(--font-mono), monospace;
   text-align: center;
 }
 
 .watchlistTabActive .watchlistCount {
-  background: #263036;
-  color: #c5ff64;
+  background: #263b5d;
+  color: #dce5f4;
 }
 
 .activeListContext {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #68737c;
+  color: #657489;
   font-size: 9px;
 }
 
 .activeListContext b {
-  color: #111619;
-  font-weight: 700;
+  color: #2457ff;
+  font-weight: 750;
 }
 
-@media (max-width: 620px) {
+@media (max-width: 680px) {
   .watchlistTabs {
     grid-template-columns: 1fr;
   }

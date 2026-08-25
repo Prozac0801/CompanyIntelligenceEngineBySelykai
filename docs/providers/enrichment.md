@@ -23,7 +23,7 @@ Utilisation à la demande :
 - accessible uniquement à un utilisateur authentifié ;
 - bloqué lorsque la politique RNE est `blocked` ou `unknown` ;
 - aucun chargement automatique des contacts dans une recherche publique ;
-- le flow contact réutilise d'abord la politique commerciale et le domaine persistés lorsqu'ils sont assez frais ;
+- le flow contact réutilise d'abord la politique commerciale et le domaine persistés lorsqu'ils sont assez frais, et uniquement si une preuve `web_verified_domain` fraîche correspond exactement au domaine canonique ;
 - le flow contact ne lance pas BOAMP, BODACC, news ou hiring juste pour afficher des contacts.
 
 Cache :
@@ -61,7 +61,7 @@ L'état des capabilities est partagé via `api_cache` et ne nécessite pas de no
 - 401/403 : circuit `auth_error` pendant 60 minutes ;
 - 429 : circuit `rate_limited` pendant 5 minutes ;
 - erreur dégradée/réseau : backoff court de 2 minutes ;
-- un succès permet de retrouver un état sain ;
+- un succès JSON valide permet de retrouver un état sain ; une réponse 2xx illisible ou contenant une enveloppe d'erreur ouvre un état dégradé ;
 - une panne news ne désactive jamais le SERP ;
 - `/api/health` expose capability, statut, date de contrôle et retry, jamais la clé.
 

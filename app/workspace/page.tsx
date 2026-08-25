@@ -157,12 +157,12 @@ export default async function WorkspacePage({
             {activeWatchlist && (
               <form action={addCompanyToWatchlistAction} className="inline-add-form">
                 <input type="hidden" name="watchlistId" value={activeWatchlist.id} />
-                <input name="siren" inputMode="numeric" maxLength={9} placeholder="SIREN à surveiller" required />
-                <select name="frequency" defaultValue="daily">
-                  <option value="daily">Quotidien</option>
-                  <option value="weekly">Hebdomadaire</option>
-                  <option value="manual">Manuel</option>
-                </select>
+                <label className="inline-field"><span>Entreprise</span><input name="siren" inputMode="numeric" maxLength={9} placeholder="SIREN à surveiller" required /></label>
+                <label className="inline-field"><span>Fréquence</span><select name="frequency" defaultValue="daily">
+                    <option value="daily">Quotidien</option>
+                    <option value="weekly">Hebdomadaire</option>
+                    <option value="manual">Manuel</option>
+                  </select></label>
                 <button type="submit"><Plus size={15} /> Ajouter</button>
               </form>
             )}
@@ -233,7 +233,7 @@ export default async function WorkspacePage({
           <p className="analysis-method-copy">Créez des listes séparées par marché, priorité ou territoire. La nouvelle liste devient active immédiatement après sa création.</p>
           <form action={createWatchlistAction} className="inline-add-form compact">
             <input type="hidden" name="workspaceId" value={workspace.id} />
-            <input name="name" maxLength={80} placeholder="Nouvelle liste" required />
+            <label className="inline-field"><span>Nom de la liste</span><input name="name" maxLength={80} placeholder="Ex. Sud-Ouest" required /></label>
             <button type="submit"><Plus size={15} /> Créer</button>
           </form>
         </section>

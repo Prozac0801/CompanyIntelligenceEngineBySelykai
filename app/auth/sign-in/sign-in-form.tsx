@@ -12,9 +12,9 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
       <input type="hidden" name="returnTo" value={returnTo} />
       <label>Email<input name="email" type="email" autoComplete="email" required /></label>
       <label>Mot de passe<input name="password" type="password" autoComplete="current-password" required /></label>
-      {state?.error && <div className="auth-error">{state.error}</div>}
+      {state?.error && <div className="auth-error" role="alert">{state.error}</div>}
       <button type="submit" disabled={pending}>
-        {pending ? "Connexion…" : "Se connecter"}<ArrowRight size={16} />
+        {pending ? "Connexion…" : "Se connecter"}<ArrowRight size={16} aria-hidden="true" />
       </button>
     </form>
   );

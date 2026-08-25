@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { ShieldCheck } from "lucide-react";
+import { AuthShell } from "@/components/auth-shell";
 import { sanitizeReturnTo } from "@/lib/auth/return-to";
 import { SignUpForm } from "./sign-up-form";
 
@@ -17,18 +16,16 @@ export default async function SignUpPage({
   const signInHref = `/auth/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
 
   return (
-    <main className="auth-page">
-      <section className="auth-panel">
-        <Link href="/" className="auth-brand"><span>S</span><strong>SELYKAI</strong></Link>
-        <div className="auth-copy">
-          <p className="mono">COMPANY INTELLIGENCE ENGINE</p>
-          <h1>Créer votre espace de veille.</h1>
-          <p>Un espace personnel et une première watchlist seront créés automatiquement lors de votre première ouverture de la veille.</p>
-        </div>
-        <SignUpForm returnTo={returnTo} />
-        <div className="auth-footer"><ShieldCheck size={14} /> Authentification gérée par Neon</div>
-        <p className="auth-switch">Déjà inscrit ? <Link href={signInHref}>Se connecter</Link></p>
-      </section>
-    </main>
+    <AuthShell
+      eyebrow="NOUVEL ESPACE"
+      title="Créer votre espace de veille."
+      description="Votre espace personnel et une première liste de veille seront initialisés automatiquement."
+      footer="Authentification gérée par Neon"
+      switchText="Déjà inscrit ?"
+      switchLabel="Se connecter"
+      switchHref={signInHref}
+    >
+      <SignUpForm returnTo={returnTo} />
+    </AuthShell>
   );
 }

@@ -41,6 +41,19 @@ export function contactDomainIsFresh(
   return Boolean(context.domain && isFresh(context.domainObservedAt, DOMAIN_FRESH_MS, now));
 }
 
+export function persistedContactDomainIsEligible(
+  context: Pick<PersistedContactContext, "domain" | "domainObservedAt" | "facts">,
+  now = Date.now(),
+): boolean {
+  if (!contactDomainIsFresh(context, now)) return false;
+  const verifiedDomain = context.facts.find((fact) => fact.key === "web_verified_domain");
+  return Boolean(
+    verifiedDomain
+      && verifiedDomain.value === context.domain
+      && isFresh(verifiedDomain.evidence.observedAt, DOMAIN_FRESH_MS, now),
+  );
+}
+
 async function persistedEligibility(siren: string): Promise<ContactEligibility | null> {
   if (!hasDatabase()) return null;
   const context = await loadPersistedContactContext(siren);
@@ -50,7 +63,7 @@ async function persistedEligibility(siren: string): Promise<ContactEligibility |
 
   const policy = commercialReuseDecision(context.facts);
   if (policy.status !== "allowed") return { policy, source: "persisted" };
-  if (contactDomainIsFresh(context)) {
+  if (persistedContactDomainIsEligible(context)) {
     return { policy, domain: context.domain, source: "persisted" };
   }
   return null;

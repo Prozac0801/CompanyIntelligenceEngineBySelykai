@@ -16,9 +16,18 @@ import {
 import { verifyCompanyWebsite } from "@/lib/providers/direct-web";
 import { getBoampAwards } from "@/lib/providers/boamp";
 import { getFirstPartyHiringIntelligence } from "@/lib/providers/careers";
+import {
+  executionPolicy,
+  type IntelligenceExecutionPolicy,
+  type ProviderFamily,
+} from "@/lib/intelligence/execution-policy";
 import { createFact } from "./facts";
 
 type WebsiteVerificationResult = Awaited<ReturnType<typeof verifyCompanyWebsite>>;
+type SerpIntelligenceResult = Awaited<ReturnType<typeof getSerpWebIntelligence>>;
+type NewsResult = Awaited<ReturnType<typeof getCompanyNews>>;
+type ProcurementResult = Awaited<ReturnType<typeof getBoampAwards>>;
+type HiringResult = Awaited<ReturnType<typeof getFirstPartyHiringIntelligence>>;
 
 function mergeUnique(...values: Array<string[] | undefined>): string[] {
   return Array.from(new Set(values.flatMap((items) => items || []).filter(Boolean)));
@@ -92,17 +101,33 @@ export function mergeWebIntelligence(
   };
 }
 
-export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnrichment> {
-  const domainPromise = resolveHunterDomain(company.name);
-  const newsPromise = getCompanyNews(company.name);
-  const procurementPromise = getBoampAwards(company.name, company.siren);
+function familyEnabled(policy: IntelligenceExecutionPolicy, family: ProviderFamily): boolean {
+  return policy.providerFamilies.includes(family);
+}
+
+export async function enrichCompany(
+  company: CompanyProfile,
+  policy: IntelligenceExecutionPolicy = executionPolicy("interactive"),
+): Promise<CompanyEnrichment> {
+  const webIdentityEnabled = familyEnabled(policy, "web-identity");
+  const domainPromise = webIdentityEnabled
+    ? resolveHunterDomain(company.name)
+    : Promise.resolve(undefined);
+  const newsPromise = familyEnabled(policy, "news")
+    ? getCompanyNews(company.name)
+    : Promise.resolve<NewsResult>({ news: [] });
+  const procurementPromise = familyEnabled(policy, "procurement")
+    ? getBoampAwards(company.name, company.siren)
+    : Promise.resolve<ProcurementResult>({ awards: [] });
 
   const domain = await domainPromise;
   const [initialHunter, serpResult, newsResult, initialFirstParty, procurementResult] = await Promise.all([
-    domain ? getHunterCompanyIntelligence(domain) : Promise.resolve(null),
-    getSerpWebIntelligence(company.name, domain),
+    webIdentityEnabled && domain ? getHunterCompanyIntelligence(domain) : Promise.resolve(null),
+    webIdentityEnabled
+      ? getSerpWebIntelligence(company.name, domain)
+      : Promise.resolve<SerpIntelligenceResult>({}),
     newsPromise,
-    domain
+    webIdentityEnabled && domain
       ? verifyCompanyWebsite(company.name, domain)
       : Promise.resolve({} as WebsiteVerificationResult),
     procurementPromise,
@@ -116,7 +141,7 @@ export async function enrichCompany(company: CompanyProfile): Promise<CompanyEnr
     ? initialFirstParty
     : await verifyCompanyWebsite(company.name, fallbackDomain);
   const web = mergeWebIntelligence(hunterResult?.web, serpResult.web, firstPartyResult.web);
-  const hiringResult = web?.domainVerified && web.domain
+  const hiringResult: HiringResult = familyEnabled(policy, "hiring") && web?.domainVerified && web.domain
     ? await getFirstPartyHiringIntelligence(company.name, web.domain)
     : {};
 
@@ -171,6 +196,9 @@ export function factsFromEnrichment(enrichment: CompanyEnrichment): CompanyFact[
 
   if (web && corroborationEvidence) {
     facts.push(createFact("web", "web_domain_verified", Boolean(web.domainVerified), corroborationEvidence));
+    if (web.domainVerified && web.domain) {
+      facts.push(createFact("web", "web_verified_domain", web.domain, corroborationEvidence));
+    }
     if (web.description) facts.push(createFact("web", "web_description", web.description, corroborationEvidence));
   }
 

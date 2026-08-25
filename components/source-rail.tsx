@@ -1,17 +1,17 @@
-import { CheckCircle2, CircleDashed, Database, KeyRound, ScanSearch } from "lucide-react";
+import { CheckCircle2, CircleDashed, Database, KeyRound, ShieldCheck } from "lucide-react";
 import { hasDatabase } from "@/lib/db";
 import { getProviderCatalog, type ProviderStatus } from "@/lib/providers/catalog";
 
 const STATUS_LABEL: Record<ProviderStatus, string> = {
-  live: "LIVE",
-  configured: "CONFIGURÉ",
-  next: "NEXT",
+  live: "Disponible",
+  configured: "Configuré",
+  next: "Planifié",
 };
 
 function StatusIcon({ status }: { status: ProviderStatus }) {
-  if (status === "live") return <CheckCircle2 size={17} />;
-  if (status === "configured") return <KeyRound size={16} />;
-  return <CircleDashed size={17} />;
+  if (status === "live") return <CheckCircle2 size={17} aria-hidden="true" />;
+  if (status === "configured") return <KeyRound size={16} aria-hidden="true" />;
+  return <CircleDashed size={17} aria-hidden="true" />;
 }
 
 export function SourceRail() {
@@ -19,24 +19,22 @@ export function SourceRail() {
   const databaseConfigured = hasDatabase();
 
   return (
-    <section className="source-section">
+    <section className="source-section" id="sources-pipeline">
       <div className="section-heading">
-        <div><ScanSearch size={20} /><span>Pipeline de sources</span></div>
-        <small>Chaque donnée garde sa preuve et sa date d’observation.</small>
+        <div><span className="section-icon"><ShieldCheck size={19} aria-hidden="true" /></span><span><small>Sources et provenance</small><h2>Un socle de données vérifiables</h2></span></div>
+        <p>Chaque donnée conserve sa preuve, son horodatage et son niveau de confiance.</p>
       </div>
       <div className="source-rail">
         {sources.map((source) => (
-          <div className="source-item" key={source.id}>
-            <div className={`source-state ${source.status}`}>
-              <StatusIcon status={source.status} />
-            </div>
-            <div><strong>{source.name}</strong><span>{source.role}</span></div>
-            <small>{STATUS_LABEL[source.status]}</small>
-          </div>
+          <article className="source-item" key={source.id}>
+            <div className={`source-state ${source.status}`}><Database size={18} aria-hidden="true" /></div>
+            <div className="source-copy"><strong>{source.name}</strong><span>{source.role}</span></div>
+            <span className={`source-badge ${source.status}`}><StatusIcon status={source.status} /> {STATUS_LABEL[source.status]}</span>
+          </article>
         ))}
       </div>
       <div className="architecture-note">
-        <Database size={16} />
+        <Database size={16} aria-hidden="true" />
         {databaseConfigured
           ? "Neon connecté : faits, snapshots, événements et scores peuvent être historisés."
           : "Mode lecture live : la recherche fonctionne, mais l’historisation Neon est inactive."}

@@ -31,6 +31,8 @@ interface RneSupplement {
   establishments: CompanyEstablishment[];
 }
 
+type BodaccResult = Awaited<ReturnType<typeof getBodaccEvents>>;
+
 export interface AnalyzeCompanyOptions {
   persist?: boolean;
   intent?: AnalysisIntent;
@@ -90,13 +92,19 @@ export async function analyzeCompany(
   if (!primaryCompany) return null;
 
   const databaseConfigured = hasDatabase();
-  const previousFactsPromise: Promise<Map<string, CompanyFact>> = databaseConfigured
+  const previousFactsPromise: Promise<Map<string, CompanyFact>> = databaseConfigured && policy.detectEvents
     ? loadLatestFacts(siren)
     : Promise.resolve(new Map<string, CompanyFact>());
+  const rnePromise = policy.providerFamilies.includes("commercial-policy")
+    ? supplementalRne(siren)
+    : Promise.resolve({ facts: [], establishments: [] });
+  const bodaccPromise = policy.providerFamilies.includes("legal-events")
+    ? getBodaccEvents(siren, 30)
+    : Promise.resolve<BodaccResult>({ events: [] });
   const [rne, baseEnrichment, bodacc, previousFacts] = await Promise.all([
-    supplementalRne(siren),
-    enrichCompany(primaryCompany),
-    getBodaccEvents(siren, 30),
+    rnePromise,
+    enrichCompany(primaryCompany, policy),
+    bodaccPromise,
     previousFactsPromise,
   ]);
 

@@ -28,6 +28,13 @@ interface LatestFactRow {
   fingerprint: string;
 }
 
+export function canonicalDomainForPersistence(
+  enrichment: Pick<CompanyEnrichment, "web">,
+): string | null {
+  const domain = enrichment.web?.domain?.trim().toLowerCase();
+  return enrichment.web?.domainVerified && domain ? domain : null;
+}
+
 export async function loadLatestFacts(siren: string): Promise<Map<string, CompanyFact>> {
   if (!hasDatabase()) return new Map();
   const sql = sqlClient();
@@ -83,7 +90,7 @@ export async function persistCompanyAnalysis(input: {
   const { company, enrichment, facts, events, signals, score } = input;
   const sql = sqlClient();
   const headOfficeSiret = company.establishments.find((item) => item.headOffice)?.siret || null;
-  const canonicalDomain = enrichment.web?.domain || null;
+  const canonicalDomain = canonicalDomainForPersistence(enrichment);
 
   const companyRows = (await sql`
     INSERT INTO companies (
