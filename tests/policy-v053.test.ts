@@ -50,6 +50,7 @@ describe("commercial action policy v0.5.3", () => {
     expect(result.opportunity.value).toBeUndefined();
     expect(result.label).toContain("prospection bloquée");
     expect(result.subscores.find((item) => item.id === "access")?.label).toBe("Joignabilité");
+    expect(result.version).toBe("intelligence-v0.5.5");
   });
 
   it("fails closed when reuse status is unknown", () => {
@@ -62,6 +63,7 @@ describe("commercial action policy v0.5.3", () => {
     const result = applyCommercialActionPolicyToScore(baseScore(), { status: "allowed", reason: "Allowed" });
     expect(result.opportunity.status).toBe("triggered");
     expect(result.opportunity.value).toBe(81);
+    expect(result.version).toBe("intelligence-v0.5.5");
   });
 
   it("switches the summary to monitoring-only guidance when blocked", () => {

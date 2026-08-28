@@ -45,9 +45,9 @@ export function getProviderCatalog(): readonly ProviderCatalogItem[] {
     {
       id: "apilayer",
       name: "APILayer",
-      role: "SERP · actualités · géolocalisation",
+      role: "SERP · actualités · géolocalisation · santé détaillée par capability",
       kind: "web",
-      status: isApiLayerProviderConfigured() ? "live" : "next",
+      status: isApiLayerProviderConfigured() ? "configured" : "next",
     },
     {
       id: "hunter",

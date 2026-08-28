@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth, isAuthConfigured } from "@/lib/auth/server";
-import { analyzeCompany } from "@/lib/intelligence/company-engine";
+import { bootstrapCompany } from "@/lib/intelligence/bootstrap-company";
 import { addCompanyToWatchlist } from "@/lib/persistence/watchlist-repository";
 import type { MonitorFrequency } from "@/types/workspace";
 
@@ -29,8 +29,8 @@ export async function watchCompanyAction(formData: FormData) {
     redirect(`/auth/sign-in?returnTo=${encodeURIComponent(`/company/${siren}`)}`);
   }
 
-  const analysis = await analyzeCompany(siren, { persist: true });
-  if (!analysis) throw new Error("Entreprise introuvable.");
+  const company = await bootstrapCompany(siren);
+  if (!company) throw new Error("Entreprise introuvable.");
 
   const added = await addCompanyToWatchlist({
     userId,

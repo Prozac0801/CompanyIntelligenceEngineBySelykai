@@ -19,13 +19,13 @@ import {
   Newspaper,
   Radar,
   ShieldCheck,
-  Sparkles,
   Target,
   TrendingUp,
   Users,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ContactReveal } from "@/components/contact-reveal";
+import { SignalObservatory } from "@/components/signal-observatory";
 import { analyzeCompany } from "@/lib/intelligence/company-engine";
 import {
   activityLabel,
@@ -76,11 +76,13 @@ function opportunityLabel(
 
 export default async function CompanyPage({ params }: { params: Promise<{ siren: string }> }) {
   const { siren } = await params;
-  const analysis = await analyzeCompany(siren);
+  const [analysis, timeline] = await Promise.all([
+    analyzeCompany(siren),
+    loadCompanyTimeline(siren),
+  ]);
   if (!analysis) notFound();
 
   const { company, enrichment, score, signals, meta, facts, summary, commercialAction } = analysis;
-  const timeline = meta.databaseConfigured ? await loadCompanyTimeline(siren) : [];
   const reuse = commercialAction;
   const web = enrichment.web;
   const officialActivity = activityLabel(company.nafCode, company.activityLabel);
@@ -115,7 +117,10 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
   return (
     <AppShell>
       <div className="workspace company-workspace intelligence-v04 intelligence-v041">
-        <Link className="back-link" href="/"><ArrowLeft size={16} /> Nouvelle recherche</Link>
+        <div className="company-command-bar">
+          <Link className="back-link" href="/"><ArrowLeft size={16} aria-hidden="true" /> Nouvelle recherche</Link>
+          <span className="company-runtime"><i /> Analyse multi-source · Engine {meta.engineVersion}</span>
+        </div>
 
         <header className="intelligence-hero-v04">
           <div className="intelligence-hero-main">
@@ -138,10 +143,21 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
           </div>
         </header>
 
+        <SignalObservatory
+          coveragePercent={score.basis.coveragePercent}
+          decisionLabel={opportunityLabel(score.opportunity.status, reuse.status)}
+          decisionReason={score.opportunity.reason}
+          eventCount={timeline.length + enrichment.legalEvents.length}
+          factCount={facts.length}
+          policyStatus={reuse.status}
+          signals={signals}
+          sourceCount={sourceEvidence.length}
+        />
+
         <section className="what-matters-v04">
           <div className="what-matters-heading">
-            <Sparkles size={18} />
-            <div><span>EXECUTIVE INTELLIGENCE</span><h2>Ce qu’il faut retenir</h2></div>
+            <FileSearch size={18} />
+            <div><span>Synthèse de décision</span><h2>Ce qu’il faut retenir</h2></div>
           </div>
           <div className="matter-grid">
             <article className="matter-card strengths">
@@ -159,7 +175,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
                 : <p><Activity size={15} />Aucun déclencheur récent suffisamment fiable</p>}
             </article>
           </div>
-          <div className="next-best-action"><Target size={18} /><div><span>Next best action</span><strong>{summary.nextBestAction}</strong></div></div>
+          <div className="next-best-action"><Target size={18} /><div><span>Action recommandée</span><strong>{summary.nextBestAction}</strong></div></div>
         </section>
 
         <section className="intelligence-score-strip" aria-label="Indicateurs Intelligence V0.5.4">
@@ -235,7 +251,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
                         {event.description ? <p>{event.description}</p> : null}
                         <small>{[event.family, event.city].filter(Boolean).join(" · ") || "BODACC / DILA"}</small>
                       </div>
-                      {event.url ? <a href={event.url} target="_blank" rel="noreferrer"><ExternalLink size={14} /></a> : null}
+                      {event.url ? <a href={event.url} target="_blank" rel="noreferrer" aria-label={`Ouvrir la source BODACC : ${event.title}`}><ExternalLink size={14} aria-hidden="true" /></a> : null}
                     </div>
                   ))}
                 </div>
@@ -329,7 +345,7 @@ export default async function CompanyPage({ params }: { params: Promise<{ siren:
                     {web.domain && !web.domainVerified ? <small className="web-caveat-v041">Candidat proposé par Hunter ; aucune donnée commerciale dérivée n’est utilisée tant qu’une seconde source ne confirme pas ce domaine.</small> : null}
                     {web.domainVerified ? <small className="web-proof-v041"><BadgeCheck size={13} /> {webProofLabel}</small> : null}
                   </div>
-                  {web.websiteUrl ? <a href={web.websiteUrl} target="_blank" rel="noreferrer" aria-label="Ouvrir le site candidat"><ExternalLink size={16} /></a> : null}
+                  {web.websiteUrl ? <a href={web.websiteUrl} target="_blank" rel="noreferrer" aria-label="Ouvrir le site de l’entreprise"><ExternalLink size={16} aria-hidden="true" /></a> : null}
                 </div>
                 {web.description ? <blockquote className="serp-snippet"><strong>{webDescriptionLabel}</strong><br />{web.description}</blockquote> : null}
                 <div className="web-kpis">

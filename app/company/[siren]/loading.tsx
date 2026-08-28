@@ -1,4 +1,4 @@
-import { DatabaseZap, FileSearch, Globe2, Radar, ShieldCheck, Sparkles } from "lucide-react";
+import { DatabaseZap, FileSearch, Globe2, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 
 const steps = [
@@ -16,19 +16,11 @@ export default function CompanyLoading() {
     <AppShell>
       <div className="workspace company-analysis-loading" role="status" aria-live="polite">
         <div className="analysis-loader-hero">
-          <div className="analysis-radar">
-            <div className="analysis-ring ring-a" />
-            <div className="analysis-ring ring-b" />
-            <div className="analysis-sweep" />
-            <div className="analysis-core"><Radar size={26} /></div>
-            <span className="analysis-node node-a" />
-            <span className="analysis-node node-b" />
-            <span className="analysis-node node-c" />
-          </div>
+          <div className="analysis-status-mark" aria-hidden="true"><FileSearch size={28} /></div>
           <div>
-            <p className="context-line"><Sparkles size={14} /> COMPANY INTELLIGENCE ENGINE V0.5</p>
-            <h1>Détection des déclencheurs business</h1>
-            <p className="lead">Le moteur recoupe identité, événements juridiques, marchés publics, recrutements, implantations, finance et présence web avant de calculer Fit, Momentum, Access, Risk et confiance.</p>
+            <p className="context-line">Analyse multi-source</p>
+            <h1>Constitution du dossier d’intelligence</h1>
+            <p className="lead">Le moteur recoupe identité, événements juridiques, marchés publics, recrutements, implantations, finance et présence web avant de produire une décision documentée.</p>
           </div>
         </div>
 

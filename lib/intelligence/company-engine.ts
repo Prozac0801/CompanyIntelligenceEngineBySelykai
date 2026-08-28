@@ -2,8 +2,8 @@ import { hasDatabase } from "@/lib/db";
 import {
   commercialReuseDecision,
   getBodaccEvents,
+  getCachedInpiRneSupplement,
   getCompanyBySiren,
-  getInpiRneSupplement,
   isInpiRneConfigured,
 } from "@/lib/providers";
 import { computeOpportunityScore } from "@/lib/scoring/opportunity";
@@ -13,6 +13,7 @@ import {
   applyCommercialActionPolicyToSummary,
 } from "@/lib/intelligence/commercial-policy";
 import { detectCompanyEvents } from "@/lib/intelligence/events";
+import { executionPolicy, type AnalysisIntent } from "@/lib/intelligence/execution-policy";
 import { factMap, factsFromCompany } from "@/lib/intelligence/facts";
 import { enrichCompany, factsFromEnrichment } from "@/lib/intelligence/enrichment";
 import { inferSignals } from "@/lib/intelligence/signals";
@@ -23,18 +24,25 @@ import { canWriteRuntimeState } from "@/lib/runtime/write-policy";
 import type { CompanyEstablishment, CompanyProfile } from "@/types/company";
 import type { CompanyAnalysisResult, CompanyFact } from "@/types/intelligence";
 
-export const ENGINE_VERSION = "0.5.9";
+export const ENGINE_VERSION = "0.5.10";
 
 interface RneSupplement {
   facts: CompanyFact[];
   establishments: CompanyEstablishment[];
 }
 
+type BodaccResult = Awaited<ReturnType<typeof getBodaccEvents>>;
+
+export interface AnalyzeCompanyOptions {
+  persist?: boolean;
+  intent?: AnalysisIntent;
+}
+
 async function supplementalRne(siren: string): Promise<RneSupplement> {
   if (!isInpiRneConfigured()) return { facts: [], establishments: [] };
 
   try {
-    const supplement = await getInpiRneSupplement(siren);
+    const supplement = await getCachedInpiRneSupplement(siren);
     return { facts: supplement.facts, establishments: supplement.establishments };
   } catch (error) {
     console.warn(
@@ -77,15 +85,27 @@ export function mergeCompanyEstablishments(
 
 export async function analyzeCompany(
   siren: string,
-  options: { persist?: boolean } = {},
+  options: AnalyzeCompanyOptions = {},
 ): Promise<CompanyAnalysisResult<CompanyProfile> | null> {
+  const policy = executionPolicy(options.intent || "interactive");
   const primaryCompany = await getCompanyBySiren(siren);
   if (!primaryCompany) return null;
 
-  const [rne, baseEnrichment, bodacc] = await Promise.all([
-    supplementalRne(siren),
-    enrichCompany(primaryCompany),
-    getBodaccEvents(siren, 30),
+  const databaseConfigured = hasDatabase();
+  const previousFactsPromise: Promise<Map<string, CompanyFact>> = databaseConfigured && policy.detectEvents
+    ? loadLatestFacts(siren)
+    : Promise.resolve(new Map<string, CompanyFact>());
+  const rnePromise = policy.providerFamilies.includes("commercial-policy")
+    ? supplementalRne(siren)
+    : Promise.resolve({ facts: [], establishments: [] });
+  const bodaccPromise = policy.providerFamilies.includes("legal-events")
+    ? getBodaccEvents(siren, 30)
+    : Promise.resolve<BodaccResult>({ events: [] });
+  const [rne, baseEnrichment, bodacc, previousFacts] = await Promise.all([
+    rnePromise,
+    enrichCompany(primaryCompany, policy),
+    bodaccPromise,
+    previousFactsPromise,
   ]);
 
   const company: CompanyProfile = {
@@ -108,9 +128,7 @@ export async function analyzeCompany(
   ];
   const commercialAction = commercialReuseDecision(facts);
   const triggers = buildBusinessTriggers({ company, enrichment, facts });
-  const databaseConfigured = hasDatabase();
-  const previousFacts = databaseConfigured ? await loadLatestFacts(siren) : new Map();
-  const events = detectCompanyEvents(previousFacts, factMap(facts));
+  const events = policy.detectEvents ? detectCompanyEvents(previousFacts, factMap(facts)) : [];
   const signals = inferSignals(events);
   const rawScore = computeOpportunityScore({ company, facts, events, signals, enrichment, triggers });
   const score = applyCommercialActionPolicyToScore(rawScore, commercialAction);
@@ -138,7 +156,7 @@ export async function analyzeCompany(
     businessTriggers: triggers,
   });
   const summary = applyCommercialActionPolicyToSummary(rawSummary, commercialAction);
-  const shouldPersist = options.persist ?? canWriteRuntimeState();
+  const shouldPersist = options.persist ?? (policy.persistAnalysis && canWriteRuntimeState());
 
   let persisted = false;
   if (databaseConfigured && shouldPersist && canWriteRuntimeState()) {

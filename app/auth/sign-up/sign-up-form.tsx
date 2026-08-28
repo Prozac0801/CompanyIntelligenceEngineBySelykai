@@ -13,9 +13,9 @@ export function SignUpForm({ returnTo }: { returnTo: string }) {
       <label>Nom<input name="name" type="text" autoComplete="name" required /></label>
       <label>Email<input name="email" type="email" autoComplete="email" required /></label>
       <label>Mot de passe<input name="password" type="password" autoComplete="new-password" minLength={8} required /></label>
-      {state?.error && <div className="auth-error">{state.error}</div>}
+      {state?.error && <div className="auth-error" role="alert">{state.error}</div>}
       <button type="submit" disabled={pending}>
-        {pending ? "Création…" : "Créer mon espace"}<ArrowRight size={16} />
+        {pending ? "Création…" : "Créer mon espace"}<ArrowRight size={16} aria-hidden="true" />
       </button>
     </form>
   );
